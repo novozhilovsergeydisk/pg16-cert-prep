@@ -2,10 +2,39 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>PostgreSQL 16 Cert Prep</title>
 </head>
 <body>
     <h1>Симулятор сертификации PostgreSQL 16</h1>
-    <p>Проект успешно развернут!</p>
+    <div id="error" role="alert" hidden></div>
+
+    <section id="categories-view">
+        <h2>Категории</h2>
+        <ul id="categories"></ul>
+    </section>
+
+    <section id="question-view" hidden>
+        <p><button id="back" type="button">К списку категорий</button></p>
+        <h2 id="category-name"></h2>
+        <p id="question-text"></p>
+        <form id="answer-form">
+            <div id="options"></div>
+            <button id="submit" type="submit">Ответить</button>
+        </form>
+        <div id="result" hidden>
+            <p id="result-status"></p>
+            <p id="result-correct"></p>
+            <p id="result-explanation"></p>
+            <button id="next" type="button">Далее</button>
+        </div>
+    </section>
+
+    <section id="finish-view" hidden>
+        <p>Вопросы в этой категории закончились.</p>
+        <button id="finish-back" type="button">К списку категорий</button>
+    </section>
+
+    <script src="js/app.js"></script>
 </body>
 </html>
