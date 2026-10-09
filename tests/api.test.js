@@ -41,11 +41,16 @@ test('GET /api/test возвращает версию сервера', async () 
     assert.equal(typeof body.version, 'string');
 });
 
-test('GET /api/categories возвращает список с id и name', async () => {
+test('GET /api/categories возвращает id, name и число вопросов, отсортировано по имени', async () => {
     const { status, body } = await get('/api/categories');
     assert.equal(status, 200);
     assert.ok(Array.isArray(body) && body.length >= 1);
-    assert.deepEqual(Object.keys(body[0]).sort(), ['id', 'name']);
+    for (const category of body) {
+        assert.deepEqual(Object.keys(category).sort(), ['id', 'name', 'question_count']);
+        assert.equal(Number.isInteger(category.question_count), true);
+    }
+    const names = body.map((c) => c.name);
+    assert.deepEqual(names, [...names].sort());
 });
 
 test('GET /api/questions не раскрывает правильный ответ и пояснение', async () => {
@@ -106,5 +111,96 @@ test('POST /api/answers отклоняет некорректные данные
 
 test('POST /api/answers для несуществующего вопроса возвращает 404', async () => {
     const { status } = await post('/api/answers', { question_id: 2147483647, answer: 'A' });
+    assert.equal(status, 404);
+});
+
+test('GET /api/exam по умолчанию отдаёт 30 уникальных вопросов без ответов', async () => {
+    const { status, body } = await get('/api/exam');
+    assert.equal(status, 200);
+    assert.equal(body.length, 30);
+    assert.equal(new Set(body.map((q) => q.id)).size, 30);
+    for (const question of body) {
+        assert.equal('correct_answer' in question, false);
+        assert.equal('explanation' in question, false);
+        assert.equal(typeof question.options, 'object');
+    }
+});
+
+test('GET /api/exam учитывает count и categories', async () => {
+    const five = await get('/api/exam?count=5');
+    assert.equal(five.status, 200);
+    assert.equal(five.body.length, 5);
+
+    const one = await get('/api/exam?count=200&categories=1');
+    assert.equal(one.status, 200);
+    assert.ok(one.body.length >= 1);
+    assert.ok(one.body.every((q) => q.category_id === 1));
+
+    const none = await get('/api/exam?categories=2147483647');
+    assert.equal(none.status, 200);
+    assert.deepEqual(none.body, []);
+});
+
+test('GET /api/exam отклоняет некорректные параметры', async () => {
+    const bad = ['count=0', 'count=abc', 'count=201', 'count=-5', 'categories=', 'categories=a', 'categories=1,x', 'categories=1,,2', 'categories=0'];
+    for (const query of bad) {
+        const { status } = await get('/api/exam?' + query);
+        assert.equal(status, 400, `ожидался 400 для "${query}"`);
+    }
+});
+
+test('POST /api/exam/check считает результат и порог сдачи', async () => {
+    const exam = await get('/api/exam?count=5');
+    const answers = [];
+    for (const question of exam.body) {
+        const probe = await post('/api/answers', { question_id: question.id, answer: 'A' });
+        answers.push({ question_id: question.id, answer: probe.body.correct_answer });
+    }
+    const perfect = await post('/api/exam/check', { answers });
+    assert.equal(perfect.status, 200);
+    assert.equal(perfect.body.total, 5);
+    assert.equal(perfect.body.correct, 5);
+    assert.equal(perfect.body.percent, 100);
+    assert.equal(perfect.body.passed, true);
+    assert.equal(perfect.body.pass_percent, 70);
+    assert.equal(perfect.body.results.length, 5);
+    assert.ok(perfect.body.results.every((r) => r.correct === true && typeof r.category_id === 'number'));
+
+    const half = await post('/api/exam/check', {
+        answers: [
+            { question_id: 1, answer: 'C' },
+            { question_id: 2, answer: null },
+        ],
+    });
+    assert.equal(half.status, 200);
+    assert.equal(half.body.correct, 1);
+    assert.equal(half.body.percent, 50);
+    assert.equal(half.body.passed, false);
+    assert.equal(half.body.results[1].answer, null);
+    assert.equal(half.body.results[1].correct, false);
+});
+
+test('POST /api/exam/check отклоняет некорректные данные', async () => {
+    const tooMany = Array.from({ length: 201 }, (_, i) => ({ question_id: i + 1, answer: 'A' }));
+    const cases = [
+        {},
+        { answers: [] },
+        { answers: 'x' },
+        { answers: [null] },
+        { answers: [{ question_id: 1 }] },
+        { answers: [{ question_id: 'abc', answer: 'A' }] },
+        { answers: [{ question_id: 1, answer: 'a' }] },
+        { answers: [{ question_id: 1, answer: 'AB' }] },
+        { answers: [{ question_id: 1, answer: 'A' }, { question_id: 1, answer: 'B' }] },
+        { answers: tooMany },
+    ];
+    for (const payload of cases) {
+        const { status } = await post('/api/exam/check', payload);
+        assert.equal(status, 400, `ожидался 400 для ${JSON.stringify(payload).slice(0, 80)}`);
+    }
+});
+
+test('POST /api/exam/check для несуществующего вопроса возвращает 404', async () => {
+    const { status } = await post('/api/exam/check', { answers: [{ question_id: 2147483647, answer: 'A' }] });
     assert.equal(status, 404);
 });

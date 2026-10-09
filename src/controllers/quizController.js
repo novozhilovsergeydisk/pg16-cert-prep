@@ -10,9 +10,28 @@ function parseId(value) {
     return Number.isSafeInteger(id) && id >= 1 && id <= INT4_MAX ? id : null;
 }
 
+const EXAM_DEFAULT_COUNT = 30;
+const EXAM_MAX_COUNT = 200;
+const EXAM_PASS_PERCENT = 70;
+
+function parseIdList(value) {
+    if (typeof value !== 'string' || value === '') return null;
+    const parts = value.split(',');
+    if (parts.length > 50) return null;
+    const ids = parts.map(parseId);
+    if (ids.some((id) => id === null)) return null;
+    return [...new Set(ids)];
+}
+
 async function getCategories(req, res) {
     try {
-        const result = await pool.query('SELECT id, name FROM categories ORDER BY id');
+        const result = await pool.query(
+            `SELECT c.id, c.name, count(q.id)::int AS question_count
+             FROM categories c
+             LEFT JOIN questions q ON q.category_id = c.id
+             GROUP BY c.id
+             ORDER BY c.name`
+        );
         res.json(result.rows);
     } catch (err) {
         res.status(500).json({ error: 'Ошибка запроса к БД' });
@@ -61,4 +80,86 @@ async function postAnswer(req, res) {
     }
 }
 
-module.exports = { getCategories, getQuestions, postAnswer };
+async function getExam(req, res) {
+    const count = req.query.count === undefined ? EXAM_DEFAULT_COUNT : parseId(req.query.count);
+    if (count === null || count > EXAM_MAX_COUNT) {
+        return res.status(400).json({ error: 'Некорректный count' });
+    }
+    let categoryIds = null;
+    if (req.query.categories !== undefined) {
+        categoryIds = parseIdList(req.query.categories);
+        if (categoryIds === null) {
+            return res.status(400).json({ error: 'Некорректный categories' });
+        }
+    }
+    try {
+        const result = categoryIds === null
+            ? await pool.query(
+                'SELECT id, category_id, question_text, options FROM questions ORDER BY random() LIMIT $1',
+                [count]
+            )
+            : await pool.query(
+                'SELECT id, category_id, question_text, options FROM questions WHERE category_id = ANY($1::int[]) ORDER BY random() LIMIT $2',
+                [categoryIds, count]
+            );
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json({ error: 'Ошибка запроса к БД' });
+    }
+}
+
+async function postExamCheck(req, res) {
+    const body = req.body || {};
+    const items = body.answers;
+    if (!Array.isArray(items) || items.length < 1 || items.length > EXAM_MAX_COUNT) {
+        return res.status(400).json({ error: 'Некорректные answers' });
+    }
+    const submitted = [];
+    const seen = new Set();
+    for (const item of items) {
+        const questionId = item && typeof item === 'object' ? parseId(item.question_id) : null;
+        const answer = item ? item.answer : undefined;
+        const answerOk = answer === null || (typeof answer === 'string' && /^[A-Z]$/.test(answer));
+        if (questionId === null || !answerOk || seen.has(questionId)) {
+            return res.status(400).json({ error: 'Некорректные answers' });
+        }
+        seen.add(questionId);
+        submitted.push({ questionId, answer });
+    }
+    try {
+        const result = await pool.query(
+            'SELECT id, category_id, correct_answer, explanation FROM questions WHERE id = ANY($1::int[])',
+            [submitted.map((s) => s.questionId)]
+        );
+        if (result.rowCount !== submitted.length) {
+            return res.status(404).json({ error: 'Вопрос не найден' });
+        }
+        const byId = new Map(result.rows.map((row) => [row.id, row]));
+        const results = submitted.map(({ questionId, answer }) => {
+            const row = byId.get(questionId);
+            const correctAnswer = row.correct_answer.trim();
+            return {
+                question_id: questionId,
+                category_id: row.category_id,
+                answer,
+                correct_answer: correctAnswer,
+                correct: answer === correctAnswer,
+                explanation: row.explanation,
+            };
+        });
+        const correct = results.filter((r) => r.correct).length;
+        const percent = Math.round((correct * 100) / results.length);
+        res.json({
+            total: results.length,
+            correct,
+            percent,
+            pass_percent: EXAM_PASS_PERCENT,
+            passed: percent >= EXAM_PASS_PERCENT,
+            results,
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Ошибка запроса к БД' });
+    }
+}
+
+module.exports = { getCategories, getQuestions, postAnswer, getExam, postExamCheck };
