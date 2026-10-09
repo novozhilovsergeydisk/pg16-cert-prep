@@ -12,6 +12,7 @@
         <div id="error" role="alert" hidden></div>
 
         <section id="categories-view">
+            <p><button id="open-exam" class="btn" type="button">Экзамен</button></p>
             <h2>Категории</h2>
             <ul id="categories" class="cards"></ul>
         </section>
@@ -19,6 +20,7 @@
         <section id="question-view" hidden>
             <button id="back" class="btn-secondary" type="button">К списку категорий</button>
             <h2 id="category-name"></h2>
+            <p id="progress" class="progress"></p>
             <p id="question-text" class="question"></p>
             <form id="answer-form">
                 <div id="options" class="options"></div>
@@ -35,6 +37,52 @@
         <section id="finish-view" hidden>
             <p>Вопросы в этой категории закончились.</p>
             <button id="finish-back" class="btn" type="button">К списку категорий</button>
+        </section>
+
+        <section id="exam-setup-view" hidden>
+            <button id="exam-setup-back" class="btn-secondary" type="button">К списку категорий</button>
+            <h2>Экзамен</h2>
+            <fieldset>
+                <legend>Число вопросов</legend>
+                <div id="exam-count" class="chips"></div>
+            </fieldset>
+            <fieldset>
+                <legend>Темы</legend>
+                <div id="exam-categories" class="options"></div>
+            </fieldset>
+            <p id="exam-time-note" class="progress"></p>
+            <button id="exam-start" class="btn" type="button">Начать экзамен</button>
+        </section>
+
+        <section id="exam-view" hidden>
+            <div class="exam-bar">
+                <span id="exam-progress" class="progress"></span>
+                <span id="exam-timer" class="timer"></span>
+            </div>
+            <p id="exam-question" class="question"></p>
+            <div id="exam-options" class="options"></div>
+            <div class="actions">
+                <button id="exam-prev" class="btn-secondary" type="button">Назад</button>
+                <button id="exam-next" class="btn" type="button">Далее</button>
+                <button id="exam-finish" class="btn-secondary" type="button">Завершить экзамен</button>
+            </div>
+        </section>
+
+        <section id="exam-result-view" hidden>
+            <h2>Результат экзамена</h2>
+            <div class="result">
+                <p id="score-percent" class="score"></p>
+                <p id="score-status" class="status"></p>
+                <p id="score-detail"></p>
+            </div>
+            <h2>По темам</h2>
+            <ul id="score-categories" class="plain"></ul>
+            <h2 id="errors-title">Ошибки</h2>
+            <div id="score-errors"></div>
+            <div class="actions">
+                <button id="result-new" class="btn" type="button">Новый экзамен</button>
+                <button id="result-back" class="btn-secondary" type="button">К списку категорий</button>
+            </div>
         </section>
     </main>
 
