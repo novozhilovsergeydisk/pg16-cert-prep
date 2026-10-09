@@ -6,6 +6,7 @@ const {
     getExam,
     postExamCheck,
     getMistakes,
+    getExamHistory,
 } = require('../controllers/quizController');
 
 const router = express.Router();
@@ -16,5 +17,6 @@ router.post('/answers', postAnswer);
 router.get('/exam', getExam);
 router.post('/exam/check', postExamCheck);
 router.get('/mistakes', getMistakes);
+router.get('/exam/history', getExamHistory);
 
 module.exports = router;

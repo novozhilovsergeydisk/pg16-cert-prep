@@ -13,6 +13,8 @@ function parseId(value) {
 const EXAM_DEFAULT_COUNT = 30;
 const EXAM_MAX_COUNT = 200;
 const EXAM_PASS_PERCENT = 70;
+const HISTORY_LIMIT = 50;
+const MAX_DURATION_SECONDS = 24 * 3600;
 
 // Ответ — одна или несколько букв A–Z без повторов (до 8); порядок не важен, приводится к алфавитному.
 function normalizeAnswer(value) {
@@ -41,6 +43,18 @@ async function logAnswers(entries) {
         );
     } catch (err) {
         // журнал вторичен: ответ пользователю всё равно отдаётся
+    }
+}
+
+// История экзаменов вторична: сбой записи не должен ломать выдачу результата.
+async function saveExam({ total, correct, percent, passed, durationSeconds }) {
+    try {
+        await pool.query(
+            'INSERT INTO exam_history (total, correct, percent, passed, duration_seconds) VALUES ($1, $2, $3, $4, $5)',
+            [total, correct, percent, passed, durationSeconds]
+        );
+    } catch (err) {
+        // результат всё равно отдаётся пользователю
     }
 }
 
@@ -137,6 +151,14 @@ async function postExamCheck(req, res) {
     if (!Array.isArray(items) || items.length < 1 || items.length > EXAM_MAX_COUNT) {
         return res.status(400).json({ error: 'Некорректные answers' });
     }
+    let durationSeconds = null;
+    if (body.duration_seconds !== undefined && body.duration_seconds !== null) {
+        const d = body.duration_seconds;
+        if (!Number.isInteger(d) || d < 0 || d > MAX_DURATION_SECONDS) {
+            return res.status(400).json({ error: 'Некорректный duration_seconds' });
+        }
+        durationSeconds = d;
+    }
     const submitted = [];
     const seen = new Set();
     for (const item of items) {
@@ -173,6 +195,13 @@ async function postExamCheck(req, res) {
         await logAnswers(results.filter((r) => r.answer !== null).map((r) => ({ questionId: r.question_id, correct: r.correct })));
         const correct = results.filter((r) => r.correct).length;
         const percent = Math.round((correct * 100) / results.length);
+        await saveExam({
+            total: results.length,
+            correct,
+            percent,
+            passed: percent >= EXAM_PASS_PERCENT,
+            durationSeconds,
+        });
         res.json({
             total: results.length,
             correct,
@@ -206,4 +235,20 @@ async function getMistakes(req, res) {
     }
 }
 
-module.exports = { getCategories, getQuestions, postAnswer, getExam, postExamCheck, getMistakes };
+// Последние завершённые экзамены, новые сверху.
+async function getExamHistory(req, res) {
+    try {
+        const result = await pool.query(
+            `SELECT id, finished_at, total, correct, percent, passed, duration_seconds
+             FROM exam_history
+             ORDER BY finished_at DESC, id DESC
+             LIMIT $1`,
+            [HISTORY_LIMIT]
+        );
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json({ error: 'Ошибка запроса к БД' });
+    }
+}
+
+module.exports = { getCategories, getQuestions, postAnswer, getExam, postExamCheck, getMistakes, getExamHistory };

@@ -8,11 +8,14 @@ const pool = require('../src/config/db');
 let server;
 let base;
 let logMark = 0;
+let historyMark = 0;
 
 before(async () => {
     // Тесты пишут в журнал ответов на рабочей базе: всё, что добавлено после этой метки, удаляется в конце.
     const mark = await pool.query('SELECT coalesce(max(id), 0) AS id FROM answer_log');
     logMark = Number(mark.rows[0].id);
+    const historyRow = await pool.query('SELECT coalesce(max(id), 0) AS id FROM exam_history');
+    historyMark = Number(historyRow.rows[0].id);
     await new Promise((resolve) => {
         server = app.listen(0, resolve);
     });
@@ -21,6 +24,7 @@ before(async () => {
 
 after(async () => {
     await pool.query('DELETE FROM answer_log WHERE id > $1', [logMark]);
+    await pool.query('DELETE FROM exam_history WHERE id > $1', [historyMark]);
     await new Promise((resolve) => server.close(resolve));
     await pool.end();
 });
@@ -313,4 +317,56 @@ test('Работа над ошибками: экзамен записывает 
     const list = await get('/api/mistakes');
     assert.ok(list.body.some((q) => q.id === 1));
     assert.equal(list.body.some((q) => q.id === 2 && before2 === 0), false);
+});
+
+test('История экзаменов: проверка экзамена сохраняет результат и длительность', async () => {
+    const mark = Number((await pool.query('SELECT coalesce(max(id), 0) AS id FROM exam_history')).rows[0].id);
+    const r = await post('/api/exam/check', {
+        answers: [
+            { question_id: 1, answer: 'C' },
+            { question_id: 2, answer: null },
+        ],
+        duration_seconds: 125,
+    });
+    assert.equal(r.status, 200);
+    const saved = await pool.query('SELECT * FROM exam_history WHERE id > $1 ORDER BY id', [mark]);
+    assert.equal(saved.rowCount, 1);
+    const row = saved.rows[0];
+    assert.equal(row.total, 2);
+    assert.equal(row.correct, 1);
+    assert.equal(row.percent, 50);
+    assert.equal(row.passed, false);
+    assert.equal(row.duration_seconds, 125);
+
+    const noDuration = await post('/api/exam/check', { answers: [{ question_id: 1, answer: 'C' }] });
+    assert.equal(noDuration.status, 200);
+    const last = await pool.query('SELECT duration_seconds, passed FROM exam_history ORDER BY id DESC LIMIT 1');
+    assert.equal(last.rows[0].duration_seconds, null);
+    assert.equal(last.rows[0].passed, true);
+});
+
+test('История экзаменов: некорректная длительность отклоняется и ничего не сохраняет', async () => {
+    const before = Number((await pool.query('SELECT count(*) AS n FROM exam_history')).rows[0].n);
+    for (const bad of [-1, 1.5, '10', 999999, true]) {
+        const { status } = await post('/api/exam/check', {
+            answers: [{ question_id: 1, answer: 'C' }],
+            duration_seconds: bad,
+        });
+        assert.equal(status, 400, `ожидался 400 для duration_seconds=${JSON.stringify(bad)}`);
+    }
+    const after = Number((await pool.query('SELECT count(*) AS n FROM exam_history')).rows[0].n);
+    assert.equal(after, before);
+});
+
+test('GET /api/exam/history отдаёт экзамены, новые сверху, не больше 50', async () => {
+    await post('/api/exam/check', { answers: [{ question_id: 1, answer: 'C' }], duration_seconds: 1 });
+    await post('/api/exam/check', { answers: [{ question_id: 1, answer: 'A' }], duration_seconds: 2 });
+    const { status, body } = await get('/api/exam/history');
+    assert.equal(status, 200);
+    assert.ok(Array.isArray(body) && body.length >= 2 && body.length <= 50);
+    assert.deepEqual(Object.keys(body[0]).sort(), ['correct', 'duration_seconds', 'finished_at', 'id', 'passed', 'percent', 'total']);
+    assert.equal(body[0].duration_seconds, 2);
+    assert.equal(body[0].passed, false);
+    const times = body.map((e) => new Date(e.finished_at).getTime());
+    assert.deepEqual(times, [...times].sort((a, b) => b - a));
 });
