@@ -7,8 +7,12 @@ const pool = require('../src/config/db');
 
 let server;
 let base;
+let logMark = 0;
 
 before(async () => {
+    // Тесты пишут в журнал ответов на рабочей базе: всё, что добавлено после этой метки, удаляется в конце.
+    const mark = await pool.query('SELECT coalesce(max(id), 0) AS id FROM answer_log');
+    logMark = Number(mark.rows[0].id);
     await new Promise((resolve) => {
         server = app.listen(0, resolve);
     });
@@ -16,6 +20,7 @@ before(async () => {
 });
 
 after(async () => {
+    await pool.query('DELETE FROM answer_log WHERE id > $1', [logMark]);
     await new Promise((resolve) => server.close(resolve));
     await pool.end();
 });
@@ -275,4 +280,37 @@ test('Ограничение БД не даёт сохранить неверн�
             `значение '${bad}' должно отклоняться`
         );
     }
+});
+
+test('Работа над ошибками: неверный ответ добавляет вопрос в список, верный убирает', async () => {
+    await post('/api/answers', { question_id: 1, answer: 'A' });
+    const after = await get('/api/mistakes');
+    assert.equal(after.status, 200);
+    const item = after.body.find((q) => q.id === 1);
+    assert.ok(item, 'вопрос 1 должен попасть в список ошибок');
+    assert.deepEqual(Object.keys(item).sort(), ['category_id', 'correct_count', 'id', 'options', 'question_text']);
+    assert.equal('correct_answer' in item, false);
+    assert.equal('explanation' in item, false);
+
+    await post('/api/answers', { question_id: 1, answer: 'C' });
+    const fixed = await get('/api/mistakes');
+    assert.equal(fixed.body.some((q) => q.id === 1), false, 'после верного ответа вопрос уходит из списка');
+});
+
+test('Работа над ошибками: экзамен записывает только отвеченные вопросы', async () => {
+    const count = async (id) => Number((await pool.query('SELECT count(*) AS n FROM answer_log WHERE question_id = $1', [id])).rows[0].n);
+    const before1 = await count(1);
+    const before2 = await count(2);
+    const r = await post('/api/exam/check', {
+        answers: [
+            { question_id: 1, answer: 'A' },
+            { question_id: 2, answer: null },
+        ],
+    });
+    assert.equal(r.status, 200);
+    assert.equal(await count(1), before1 + 1);
+    assert.equal(await count(2), before2, 'вопрос без ответа в журнал не пишется');
+    const list = await get('/api/mistakes');
+    assert.ok(list.body.some((q) => q.id === 1));
+    assert.equal(list.body.some((q) => q.id === 2 && before2 === 0), false);
 });

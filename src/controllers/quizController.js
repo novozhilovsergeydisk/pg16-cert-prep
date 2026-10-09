@@ -31,6 +31,19 @@ function parseIdList(value) {
     return [...new Set(ids)];
 }
 
+// Журнал ответов нужен режиму «Работа над ошибками». Сбой записи не должен ломать проверку ответа.
+async function logAnswers(entries) {
+    if (entries.length === 0) return;
+    try {
+        await pool.query(
+            'INSERT INTO answer_log (question_id, correct) SELECT * FROM unnest($1::int[], $2::boolean[])',
+            [entries.map((e) => e.questionId), entries.map((e) => e.correct)]
+        );
+    } catch (err) {
+        // журнал вторичен: ответ пользователю всё равно отдаётся
+    }
+}
+
 async function getCategories(req, res) {
     try {
         const result = await pool.query(
@@ -78,8 +91,10 @@ async function postAnswer(req, res) {
             return res.status(404).json({ error: 'Вопрос не найден' });
         }
         const { correct_answer, explanation } = result.rows[0];
+        const correct = answer === correct_answer;
+        await logAnswers([{ questionId, correct }]);
         res.json({
-            correct: answer === correct_answer,
+            correct,
             correct_answer,
             explanation,
         });
@@ -155,6 +170,7 @@ async function postExamCheck(req, res) {
                 explanation: row.explanation,
             };
         });
+        await logAnswers(results.filter((r) => r.answer !== null).map((r) => ({ questionId: r.question_id, correct: r.correct })));
         const correct = results.filter((r) => r.correct).length;
         const percent = Math.round((correct * 100) / results.length);
         res.json({
@@ -170,4 +186,24 @@ async function postExamCheck(req, res) {
     }
 }
 
-module.exports = { getCategories, getQuestions, postAnswer, getExam, postExamCheck };
+// Вопросы, на которые последний ответ был неверным.
+async function getMistakes(req, res) {
+    try {
+        const result = await pool.query(
+            `SELECT q.id, q.category_id, q.question_text, q.options, length(q.correct_answer) AS correct_count
+             FROM questions q
+             JOIN (
+                 SELECT DISTINCT ON (question_id) question_id, correct
+                 FROM answer_log
+                 ORDER BY question_id, answered_at DESC, id DESC
+             ) last ON last.question_id = q.id
+             WHERE NOT last.correct
+             ORDER BY q.id`
+        );
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json({ error: 'Ошибка запроса к БД' });
+    }
+}
+
+module.exports = { getCategories, getQuestions, postAnswer, getExam, postExamCheck, getMistakes };
