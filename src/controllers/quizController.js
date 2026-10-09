@@ -14,6 +14,14 @@ const EXAM_DEFAULT_COUNT = 30;
 const EXAM_MAX_COUNT = 200;
 const EXAM_PASS_PERCENT = 70;
 
+// Ответ — одна или несколько букв A–Z без повторов (до 8); порядок не важен, приводится к алфавитному.
+function normalizeAnswer(value) {
+    if (typeof value !== 'string' || !/^[A-Z]{1,8}$/.test(value)) return null;
+    const letters = value.split('');
+    if (new Set(letters).size !== letters.length) return null;
+    return letters.sort().join('');
+}
+
 function parseIdList(value) {
     if (typeof value !== 'string' || value === '') return null;
     const parts = value.split(',');
@@ -45,7 +53,7 @@ async function getQuestions(req, res) {
     }
     try {
         const result = await pool.query(
-            'SELECT id, category_id, question_text, options FROM questions WHERE category_id = $1 ORDER BY id',
+            'SELECT id, category_id, question_text, options, length(correct_answer) AS correct_count FROM questions WHERE category_id = $1 ORDER BY id',
             [categoryId]
         );
         res.json(result.rows);
@@ -57,8 +65,8 @@ async function getQuestions(req, res) {
 async function postAnswer(req, res) {
     const body = req.body || {};
     const questionId = parseId(body.question_id);
-    const answer = body.answer;
-    if (questionId === null || typeof answer !== 'string' || !/^[A-Z]$/.test(answer)) {
+    const answer = normalizeAnswer(body.answer);
+    if (questionId === null || answer === null) {
         return res.status(400).json({ error: 'Некорректные question_id или answer' });
     }
     try {
@@ -71,8 +79,8 @@ async function postAnswer(req, res) {
         }
         const { correct_answer, explanation } = result.rows[0];
         res.json({
-            correct: answer === correct_answer.trim(),
-            correct_answer: correct_answer.trim(),
+            correct: answer === correct_answer,
+            correct_answer,
             explanation,
         });
     } catch (err) {
@@ -95,11 +103,11 @@ async function getExam(req, res) {
     try {
         const result = categoryIds === null
             ? await pool.query(
-                'SELECT id, category_id, question_text, options FROM questions ORDER BY random() LIMIT $1',
+                'SELECT id, category_id, question_text, options, length(correct_answer) AS correct_count FROM questions ORDER BY random() LIMIT $1',
                 [count]
             )
             : await pool.query(
-                'SELECT id, category_id, question_text, options FROM questions WHERE category_id = ANY($1::int[]) ORDER BY random() LIMIT $2',
+                'SELECT id, category_id, question_text, options, length(correct_answer) AS correct_count FROM questions WHERE category_id = ANY($1::int[]) ORDER BY random() LIMIT $2',
                 [categoryIds, count]
             );
         res.json(result.rows);
@@ -118,9 +126,9 @@ async function postExamCheck(req, res) {
     const seen = new Set();
     for (const item of items) {
         const questionId = item && typeof item === 'object' ? parseId(item.question_id) : null;
-        const answer = item ? item.answer : undefined;
-        const answerOk = answer === null || (typeof answer === 'string' && /^[A-Z]$/.test(answer));
-        if (questionId === null || !answerOk || seen.has(questionId)) {
+        const raw = item ? item.answer : undefined;
+        const answer = raw === null ? null : normalizeAnswer(raw);
+        if (questionId === null || (raw !== null && answer === null) || seen.has(questionId)) {
             return res.status(400).json({ error: 'Некорректные answers' });
         }
         seen.add(questionId);
@@ -137,7 +145,7 @@ async function postExamCheck(req, res) {
         const byId = new Map(result.rows.map((row) => [row.id, row]));
         const results = submitted.map(({ questionId, answer }) => {
             const row = byId.get(questionId);
-            const correctAnswer = row.correct_answer.trim();
+            const correctAnswer = row.correct_answer;
             return {
                 question_id: questionId,
                 category_id: row.category_id,

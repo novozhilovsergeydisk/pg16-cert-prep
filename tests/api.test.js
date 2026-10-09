@@ -61,6 +61,7 @@ test('GET /api/questions не раскрывает правильный отве
         assert.equal('correct_answer' in question, false);
         assert.equal('explanation' in question, false);
         assert.equal(typeof question.options, 'object');
+        assert.equal(Number.isInteger(question.correct_count) && question.correct_count >= 1, true);
     }
 });
 
@@ -99,7 +100,9 @@ test('POST /api/answers отклоняет некорректные данные
         { answer: 'A' },
         { question_id: 'abc', answer: 'A' },
         { question_id: 1, answer: 'a' },
-        { question_id: 1, answer: 'AB' },
+        { question_id: 1, answer: 'AA' },
+        { question_id: 1, answer: 'ABCDEFGHI' },
+        { question_id: 1, answer: '' },
         { question_id: 1, answer: 1 },
         { question_id: 99999999999, answer: 'A' },
     ];
@@ -123,6 +126,7 @@ test('GET /api/exam по умолчанию отдаёт 30 уникальных
         assert.equal('correct_answer' in question, false);
         assert.equal('explanation' in question, false);
         assert.equal(typeof question.options, 'object');
+        assert.equal(Number.isInteger(question.correct_count) && question.correct_count >= 1, true);
     }
 });
 
@@ -190,7 +194,8 @@ test('POST /api/exam/check отклоняет некорректные данн�
         { answers: [{ question_id: 1 }] },
         { answers: [{ question_id: 'abc', answer: 'A' }] },
         { answers: [{ question_id: 1, answer: 'a' }] },
-        { answers: [{ question_id: 1, answer: 'AB' }] },
+        { answers: [{ question_id: 1, answer: 'AA' }] },
+        { answers: [{ question_id: 1, answer: '' }] },
         { answers: [{ question_id: 1, answer: 'A' }, { question_id: 1, answer: 'B' }] },
         { answers: tooMany },
     ];
@@ -203,4 +208,71 @@ test('POST /api/exam/check отклоняет некорректные данн�
 test('POST /api/exam/check для несуществующего вопроса возвращает 404', async () => {
     const { status } = await post('/api/exam/check', { answers: [{ question_id: 2147483647, answer: 'A' }] });
     assert.equal(status, 404);
+});
+
+// Временный вопрос с двумя правильными ответами: создаётся перед тестом и удаляется после.
+async function withMultiQuestion(fn) {
+    const created = await pool.query(
+        `INSERT INTO questions (category_id, question_text, options, correct_answer, explanation)
+         VALUES (1, 'Тестовый вопрос с двумя ответами', '{"A":"a","B":"b","C":"c","D":"d"}'::jsonb, 'AC', 'тест')
+         RETURNING id`
+    );
+    const id = created.rows[0].id;
+    try {
+        await fn(id);
+    } finally {
+        await pool.query('DELETE FROM questions WHERE id = $1', [id]);
+    }
+}
+
+test('Несколько правильных ответов: correct_count и проверка в тренировке', async () => {
+    await withMultiQuestion(async (id) => {
+        const list = await get('/api/questions?category_id=1');
+        const question = list.body.find((q) => q.id === id);
+        assert.equal(question.correct_count, 2);
+        assert.equal('correct_answer' in question, false);
+
+        const exact = await post('/api/answers', { question_id: id, answer: 'AC' });
+        assert.equal(exact.status, 200);
+        assert.equal(exact.body.correct, true);
+        assert.equal(exact.body.correct_answer, 'AC');
+
+        const reversed = await post('/api/answers', { question_id: id, answer: 'CA' });
+        assert.equal(reversed.body.correct, true);
+
+        for (const partial of ['A', 'C', 'ACD', 'BD']) {
+            const r = await post('/api/answers', { question_id: id, answer: partial });
+            assert.equal(r.status, 200);
+            assert.equal(r.body.correct, false, `ответ ${partial} не должен засчитываться`);
+        }
+    });
+});
+
+test('Несколько правильных ответов: подсчёт в экзамене «всё или ничего»', async () => {
+    await withMultiQuestion(async (id) => {
+        const r = await post('/api/exam/check', {
+            answers: [
+                { question_id: id, answer: 'CA' },
+                { question_id: 1, answer: 'C' },
+            ],
+        });
+        assert.equal(r.status, 200);
+        assert.equal(r.body.correct, 2);
+        assert.equal(r.body.results[0].answer, 'AC');
+        assert.equal(r.body.results[0].correct_answer, 'AC');
+
+        const partial = await post('/api/exam/check', { answers: [{ question_id: id, answer: 'A' }] });
+        assert.equal(partial.body.correct, 0);
+        assert.equal(partial.body.percent, 0);
+    });
+});
+
+test('Ограничение БД не даёт сохранить неверный correct_answer', async () => {
+    for (const bad of ['CA', 'AA', 'E', '']) {
+        await assert.rejects(
+            pool.query('UPDATE questions SET correct_answer = $1 WHERE id = 1', [bad]),
+            undefined,
+            `значение '${bad}' должно отклоняться`
+        );
+    }
 });
