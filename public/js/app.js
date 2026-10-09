@@ -42,6 +42,7 @@
                 const item = document.createElement('li');
                 const button = document.createElement('button');
                 button.type = 'button';
+                button.className = 'card';
                 button.textContent = category.name;
                 button.addEventListener('click', () => startCategory(category));
                 item.appendChild(button);
@@ -80,14 +81,21 @@
         options.textContent = '';
         Object.keys(question.options).sort().forEach((letter) => {
             const label = document.createElement('label');
+            label.className = 'option';
             const input = document.createElement('input');
             input.type = 'radio';
             input.name = 'answer';
             input.value = letter;
+            const badge = document.createElement('span');
+            badge.className = 'badge';
+            badge.textContent = letter;
+            const text = document.createElement('span');
+            text.className = 'text';
+            text.textContent = question.options[letter];
             label.appendChild(input);
-            label.appendChild(document.createTextNode(' ' + letter + '. ' + question.options[letter]));
+            label.appendChild(badge);
+            label.appendChild(text);
             options.appendChild(label);
-            options.appendChild(document.createElement('br'));
         });
     }
 
@@ -105,7 +113,19 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ question_id: questions[index].id, answer: selected.value }),
             });
-            $('result-status').textContent = result.correct ? 'Верно' : 'Неверно';
+            document.querySelectorAll('#options .option').forEach((label) => {
+                const input = label.querySelector('input');
+                input.disabled = true;
+                label.classList.add('locked');
+                if (input.value === result.correct_answer) {
+                    label.classList.add('correct');
+                } else if (input.checked) {
+                    label.classList.add('wrong');
+                }
+            });
+            const status = $('result-status');
+            status.textContent = result.correct ? 'Верно' : 'Неверно';
+            status.className = 'status ' + (result.correct ? 'ok' : 'bad');
             $('result-correct').textContent = 'Правильный ответ: ' + result.correct_answer;
             $('result-explanation').textContent = result.explanation || '';
             $('result').hidden = false;
