@@ -3,24 +3,28 @@ require('dotenv').config();
 
 const app = express();
 const port = process.env.PORT || 3000;
+const host = process.env.HOST || '127.0.0.1';
 const pool = require('./src/config/db');
 
 app.use(express.static('public'));
 app.use(express.json());
 app.use('/api', require('./src/routes/quiz'));
 
-app.get('/api/test', async (req, res) => {
-    try {
-        const result = await pool.query("SELECT current_setting('server_version') AS version");
-        res.json({ success: true, version: result.rows[0].version });
-    } catch (err) {
-        res.status(500).json({ success: false, error: 'Ошибка запроса к БД' });
-    }
-});
+// Проверка соединения с БД отдаёт версию сервера, поэтому в продакшене отключена.
+if (process.env.NODE_ENV !== 'production') {
+    app.get('/api/test', async (req, res) => {
+        try {
+            const result = await pool.query("SELECT current_setting('server_version') AS version");
+            res.json({ success: true, version: result.rows[0].version });
+        } catch (err) {
+            res.status(500).json({ success: false, error: 'Ошибка запроса к БД' });
+        }
+    });
+}
 
 if (require.main === module) {
-    app.listen(port, () => {
-        console.log(`Сервер запущен: http://localhost:${port}`);
+    app.listen(port, host, () => {
+        console.log(`Сервер запущен: http://${host}:${port}`);
     });
 }
 
