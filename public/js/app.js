@@ -67,13 +67,79 @@
         return LETTERS[question.order.indexOf(key)];
     }
 
-    function optionLine(question, key) {
-        return displayLetter(question, key) + '. ' + question.options[key];
+    // Буквы ответа (например 'AC') в порядке, как они показаны на экране: ['A', 'B'].
+    function answerKeys(question, answer) {
+        return answer.split('').sort((a, b) => question.order.indexOf(a) - question.order.indexOf(b));
+    }
+
+    function isMulti(question) {
+        return question.correct_count > 1;
+    }
+
+    // Ответ для сервера: исходные ключи выбранных вариантов по алфавиту, либо null.
+    function collectAnswer(container) {
+        const keys = Array.from(container.querySelectorAll('input:checked')).map((el) => el.value);
+        return keys.length === 0 ? null : keys.sort().join('');
+    }
+
+    function hintText(question) {
+        return isMulti(question)
+            ? 'Выберите ' + question.correct_count + ' ' + plural(question.correct_count, 'вариант', 'варианта', 'вариантов')
+            : '';
+    }
+
+    // Фрагменты кода в одиночных ` ` внутри обычного текста.
+    function appendInline(container, source) {
+        source.split(/(`[^`\n]+`)/).forEach((chunk) => {
+            if (chunk === '') return;
+            if (chunk.length > 2 && chunk.startsWith('`') && chunk.endsWith('`')) {
+                const code = document.createElement('code');
+                code.textContent = chunk.slice(1, -1);
+                container.appendChild(code);
+            } else {
+                container.appendChild(document.createTextNode(chunk));
+            }
+        });
+    }
+
+    // Безопасный вывод текста с кодом: блок между ``` и ``` и фрагменты в одиночных ` `. Без innerHTML.
+    // Если тройных кавычек нечётное число, блоков нет, весь текст выводится как обычный.
+    function renderRich(container, text) {
+        container.textContent = '';
+        const parts = String(text).split('```');
+        const hasBlocks = parts.length % 2 === 1;
+        parts.forEach((part, i) => {
+            if (hasBlocks && i % 2 === 1) {
+                const pre = document.createElement('pre');
+                const code = document.createElement('code');
+                code.textContent = part.replace(/^\n+|\n+$/g, '');
+                pre.appendChild(code);
+                container.appendChild(pre);
+            } else {
+                appendInline(container, hasBlocks || i === 0 ? part : '```' + part);
+            }
+        });
+    }
+
+    // Список вариантов ответа (буква + текст) для разбора: 'A. текст'.
+    function appendAnswerLines(container, question, answer) {
+        answerKeys(question, answer).forEach((key) => {
+            const line = document.createElement('div');
+            line.className = 'answer-line';
+            const letter = document.createElement('strong');
+            letter.textContent = displayLetter(question, key) + '.';
+            const body = document.createElement('span');
+            renderRich(body, question.options[key]);
+            line.appendChild(letter);
+            line.appendChild(document.createTextNode(' '));
+            line.appendChild(body);
+            container.appendChild(line);
+        });
     }
 
     function makeOption(key, letter, text, name, inputType) {
         const label = document.createElement('label');
-        label.className = 'option';
+        label.className = inputType === 'checkbox' ? 'option multi' : 'option';
         const input = document.createElement('input');
         input.type = inputType || 'radio';
         input.name = name;
@@ -83,7 +149,7 @@
         badge.textContent = letter;
         const body = document.createElement('span');
         body.className = 'text';
-        body.textContent = text;
+        renderRich(body, text);
         label.appendChild(input);
         label.appendChild(badge);
         label.appendChild(body);
@@ -144,36 +210,41 @@
         const question = questions[index];
         show('question');
         $('progress').textContent = 'Вопрос ' + (index + 1) + ' из ' + questions.length;
-        $('question-text').textContent = question.question_text;
+        renderRich($('question-text'), question.question_text);
+        $('question-hint').textContent = hintText(question);
+        $('question-hint').hidden = !isMulti(question);
         $('result').hidden = true;
         $('submit').disabled = false;
 
         const options = $('options');
         options.textContent = '';
         question.order.forEach((key, position) => {
-            options.appendChild(makeOption(key, LETTERS[position], question.options[key], 'answer'));
+            options.appendChild(makeOption(
+                key, LETTERS[position], question.options[key], 'answer', isMulti(question) ? 'checkbox' : 'radio'
+            ));
         });
     }
 
     async function submitAnswer(event) {
         event.preventDefault();
         showError('');
-        const selected = document.querySelector('#options input[name="answer"]:checked');
-        if (!selected) {
-            showError('Выберите вариант ответа');
+        const answer = collectAnswer($('options'));
+        if (answer === null) {
+            showError(isMulti(questions[index]) ? 'Выберите варианты ответа' : 'Выберите вариант ответа');
             return;
         }
         try {
             const result = await api('/api/answers', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ question_id: questions[index].id, answer: selected.value }),
+                body: JSON.stringify({ question_id: questions[index].id, answer }),
             });
+            const rightKeys = result.correct_answer.split('');
             document.querySelectorAll('#options .option').forEach((label) => {
                 const input = label.querySelector('input');
                 input.disabled = true;
                 label.classList.add('locked');
-                if (input.value === result.correct_answer) {
+                if (rightKeys.includes(input.value)) {
                     label.classList.add('correct');
                 } else if (input.checked) {
                     label.classList.add('wrong');
@@ -182,7 +253,9 @@
             const status = $('result-status');
             status.textContent = result.correct ? 'Верно' : 'Неверно';
             status.className = 'status ' + (result.correct ? 'ok' : 'bad');
-            $('result-correct').textContent = 'Правильный ответ: ' + displayLetter(questions[index], result.correct_answer);
+            const rightLetters = answerKeys(questions[index], result.correct_answer)
+                .map((key) => displayLetter(questions[index], key)).join(', ');
+            $('result-correct').textContent = (rightKeys.length > 1 ? 'Правильные ответы: ' : 'Правильный ответ: ') + rightLetters;
             $('result-explanation').textContent = result.explanation || '';
             $('result').hidden = false;
             $('submit').disabled = true;
@@ -312,15 +385,20 @@
     function renderExamQuestion() {
         const question = exam.questions[exam.index];
         $('exam-progress').textContent = 'Вопрос ' + (exam.index + 1) + ' из ' + exam.questions.length;
-        $('exam-question').textContent = question.question_text;
+        renderRich($('exam-question'), question.question_text);
+        $('exam-hint').textContent = hintText(question);
+        $('exam-hint').hidden = !isMulti(question);
         const options = $('exam-options');
         options.textContent = '';
+        const saved = exam.answers[exam.index] || '';
         question.order.forEach((key, position) => {
-            const label = makeOption(key, LETTERS[position], question.options[key], 'exam-answer');
+            const label = makeOption(
+                key, LETTERS[position], question.options[key], 'exam-answer', isMulti(question) ? 'checkbox' : 'radio'
+            );
             const input = label.querySelector('input');
-            input.checked = exam.answers[exam.index] === key;
+            input.checked = saved.includes(key);
             input.addEventListener('change', () => {
-                exam.answers[exam.index] = key;
+                exam.answers[exam.index] = collectAnswer(options);
             });
             options.appendChild(label);
         });
@@ -390,15 +468,23 @@
         wrong.forEach(({ r, question }) => {
             const card = document.createElement('div');
             card.className = 'result error-card';
-            const title = document.createElement('p');
+            const title = document.createElement('div');
             title.className = 'question';
-            title.textContent = question.question_text;
-            const mine = document.createElement('p');
-            mine.textContent = r.answer === null
+            renderRich(title, question.question_text);
+            const mine = document.createElement('div');
+            mine.className = 'answer-block';
+            const mineTitle = document.createElement('p');
+            mineTitle.textContent = r.answer === null
                 ? 'Ваш ответ: нет ответа'
-                : 'Ваш ответ: ' + optionLine(question, r.answer);
-            const right = document.createElement('p');
-            right.textContent = 'Правильный ответ: ' + optionLine(question, r.correct_answer);
+                : (r.answer.length > 1 ? 'Ваши ответы:' : 'Ваш ответ:');
+            mine.appendChild(mineTitle);
+            if (r.answer !== null) appendAnswerLines(mine, question, r.answer);
+            const right = document.createElement('div');
+            right.className = 'answer-block';
+            const rightTitle = document.createElement('p');
+            rightTitle.textContent = r.correct_answer.length > 1 ? 'Правильные ответы:' : 'Правильный ответ:';
+            right.appendChild(rightTitle);
+            appendAnswerLines(right, question, r.correct_answer);
             const note = document.createElement('p');
             note.className = 'explanation';
             note.textContent = r.explanation || '';
