@@ -400,6 +400,15 @@ legend {
     margin-top: 20px;
 }
 
+.top-actions {
+    margin: 0 0 24px;
+}
+
+.btn-secondary:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
 .score {
     margin: 0 0 4px;
     font-size: 2.4rem;

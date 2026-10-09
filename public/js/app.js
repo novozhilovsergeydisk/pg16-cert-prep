@@ -158,6 +158,36 @@
 
     // Категории и тренировка
 
+    async function refreshMistakes() {
+        const button = $('open-mistakes');
+        try {
+            const list = await api('/api/mistakes');
+            button.textContent = 'Работа над ошибками (' + list.length + ')';
+            button.disabled = list.length === 0;
+        } catch (err) {
+            button.textContent = 'Работа над ошибками';
+            button.disabled = false;
+        }
+    }
+
+    async function startMistakes() {
+        showError('');
+        try {
+            questions = prepareQuestions(shuffle(await api('/api/mistakes')));
+        } catch (err) {
+            showError(err.message);
+            return;
+        }
+        if (questions.length === 0) {
+            showError('Список ошибок пуст');
+            refreshMistakes();
+            return;
+        }
+        $('category-name').textContent = 'Работа над ошибками';
+        index = 0;
+        showQuestion();
+    }
+
     async function loadCategories() {
         showError('');
         stopTimer();
@@ -165,6 +195,7 @@
         show('categories');
         const list = $('categories');
         list.textContent = '';
+        refreshMistakes();
         try {
             categories = await api('/api/categories');
             categories.forEach((category) => {
@@ -506,6 +537,7 @@
     $('finish-back').addEventListener('click', loadCategories);
 
     $('open-exam').addEventListener('click', openExamSetup);
+    $('open-mistakes').addEventListener('click', startMistakes);
     $('exam-setup-back').addEventListener('click', loadCategories);
     $('exam-start').addEventListener('click', startExam);
     $('exam-prev').addEventListener('click', () => {
