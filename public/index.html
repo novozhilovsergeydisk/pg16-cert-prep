@@ -16,6 +16,7 @@
             <div class="actions top-actions">
                 <button id="open-exam" class="btn" type="button">Экзамен</button>
                 <button id="open-mistakes" class="btn-secondary" type="button">Работа над ошибками</button>
+                <button id="open-history" class="btn-secondary" type="button">История экзаменов</button>
             </div>
             <h2>Категории</h2>
             <ul id="categories" class="cards"></ul>
@@ -72,6 +73,13 @@
                 <button id="exam-next" class="btn" type="button">Далее</button>
                 <button id="exam-finish" class="btn-secondary" type="button">Завершить экзамен</button>
             </div>
+        </section>
+
+        <section id="history-view" hidden>
+            <button id="history-back" class="btn-secondary" type="button">К списку категорий</button>
+            <h2>История экзаменов</h2>
+            <p id="history-empty" class="progress" hidden>Пока нет пройденных экзаменов.</p>
+            <ul id="history-list" class="plain"></ul>
         </section>
 
         <section id="exam-result-view" hidden>

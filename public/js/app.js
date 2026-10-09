@@ -1,7 +1,7 @@
 (function () {
     const $ = (id) => document.getElementById(id);
 
-    const VIEWS = ['categories', 'question', 'finish', 'exam-setup', 'exam', 'exam-result'];
+    const VIEWS = ['categories', 'question', 'finish', 'exam-setup', 'exam', 'exam-result', 'history'];
     const EXAM_COUNTS = [20, 30, 50];
     const EXAM_DEFAULT_COUNT = 30;
     const SECONDS_PER_QUESTION = 90;
@@ -403,6 +403,7 @@
             questions: prepareQuestions(loaded),
             answers: loaded.map(() => null),
             index: 0,
+            startedAt: Date.now(),
             deadline: Date.now() + loaded.length * SECONDS_PER_QUESTION * 1000,
             timerId: null,
             finishing: false,
@@ -454,6 +455,7 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     answers: exam.questions.map((q, i) => ({ question_id: q.id, answer: exam.answers[i] })),
+                    duration_seconds: Math.max(0, Math.min(86400, Math.round((Date.now() - exam.startedAt) / 1000))),
                 }),
             });
             renderResult(result);
@@ -461,6 +463,44 @@
             exam.finishing = false;
             showError(err.message);
         }
+    }
+
+    // История экзаменов
+
+    async function openHistory() {
+        showError('');
+        let items;
+        try {
+            items = await api('/api/exam/history');
+        } catch (err) {
+            showError(err.message);
+            return;
+        }
+        const list = $('history-list');
+        list.textContent = '';
+        $('history-empty').hidden = items.length > 0;
+        items.forEach((item) => {
+            const row = document.createElement('li');
+            row.className = 'history-row';
+            const when = document.createElement('span');
+            when.className = 'history-date';
+            when.textContent = new Date(item.finished_at).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
+            const score = document.createElement('span');
+            score.className = 'history-score';
+            score.textContent = item.correct + ' из ' + item.total + ', ' + item.percent + '%';
+            const status = document.createElement('span');
+            status.className = 'status ' + (item.passed ? 'ok' : 'bad');
+            status.textContent = item.passed ? 'Сдан' : 'Не сдан';
+            const time = document.createElement('span');
+            time.className = 'history-time';
+            time.textContent = item.duration_seconds === null ? '' : formatTime(item.duration_seconds);
+            row.appendChild(when);
+            row.appendChild(score);
+            row.appendChild(status);
+            row.appendChild(time);
+            list.appendChild(row);
+        });
+        show('history');
     }
 
     function renderResult(result) {
@@ -538,6 +578,8 @@
 
     $('open-exam').addEventListener('click', openExamSetup);
     $('open-mistakes').addEventListener('click', startMistakes);
+    $('open-history').addEventListener('click', openHistory);
+    $('history-back').addEventListener('click', loadCategories);
     $('exam-setup-back').addEventListener('click', loadCategories);
     $('exam-start').addEventListener('click', startExam);
     $('exam-prev').addEventListener('click', () => {

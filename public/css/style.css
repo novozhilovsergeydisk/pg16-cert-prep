@@ -293,7 +293,8 @@ button {
 
 #back,
 #finish-back,
-#exam-setup-back {
+#exam-setup-back,
+#history-back {
     margin-bottom: 24px;
 }
 
@@ -407,6 +408,24 @@ legend {
 .btn-secondary:disabled {
     opacity: 0.45;
     cursor: not-allowed;
+}
+
+.history-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto auto;
+    gap: 12px;
+    align-items: baseline;
+}
+
+.history-row .status {
+    margin: 0;
+    font-size: 1rem;
+}
+
+.history-date,
+.history-time {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
 }
 
 .score {
