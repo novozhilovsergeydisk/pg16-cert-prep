@@ -7,6 +7,7 @@ const pool = require('./src/config/db');
 
 app.use(express.static('public'));
 app.use(express.json());
+app.use('/api', require('./src/routes/quiz'));
 
 app.get('/api/test', async (req, res) => {
     try {
@@ -17,6 +18,10 @@ app.get('/api/test', async (req, res) => {
     }
 });
 
-app.listen(port, () => {
-    console.log(`Сервер запущен: http://localhost:${port}`);
-});
+if (require.main === module) {
+    app.listen(port, () => {
+        console.log(`Сервер запущен: http://localhost:${port}`);
+    });
+}
+
+module.exports = app;
