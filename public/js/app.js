@@ -83,9 +83,7 @@
     }
 
     function hintText(question) {
-        return isMulti(question)
-            ? 'Выберите ' + question.correct_count + ' ' + plural(question.correct_count, 'вариант', 'варианта', 'вариантов')
-            : '';
+        return isMulti(question) ? 'Правильных вариантов может быть несколько: выберите один или более' : '';
     }
 
     // Фрагменты кода в одиночных ` ` внутри обычного текста.
