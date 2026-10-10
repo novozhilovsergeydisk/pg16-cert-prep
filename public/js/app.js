@@ -5,6 +5,10 @@
     const EXAM_COUNTS = [20, 30, 50];
     const EXAM_DEFAULT_COUNT = 30;
     const SECONDS_PER_QUESTION = 90;
+    const PORTION_SIZE = 16;
+    const FINISH_PORTION = 'Порция вопросов пройдена. Откройте тему снова, чтобы получить следующую: сначала новые вопросы и те, где были ошибки.';
+    const FINISH_MISTAKES = 'Вопросы из списка ошибок закончились.';
+    let finishText = FINISH_PORTION;
     const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
     let categories = [];
@@ -120,7 +124,7 @@
     }
 
     // Список вариантов ответа (буква + текст) для разбора: 'A. текст'.
-    function appendAnswerLines(container, question, answer) {
+    function appendAnswerLines(container, question, answer, notes, correctAnswer) {
         answerKeys(question, answer).forEach((key) => {
             const line = document.createElement('div');
             line.className = 'answer-line';
@@ -131,8 +135,18 @@
             line.appendChild(letter);
             line.appendChild(document.createTextNode(' '));
             line.appendChild(body);
+            if (notes && correctAnswer && !correctAnswer.includes(key)) appendNote(body, notes[key]);
             container.appendChild(line);
         });
+    }
+
+    // Пояснение к варианту (что он делает или почему не подходит) — показывается после ответа.
+    function appendNote(container, text) {
+        if (!text) return;
+        const note = document.createElement('span');
+        note.className = 'option-note';
+        renderRich(note, text);
+        container.appendChild(note);
     }
 
     function makeOption(key, letter, text, name, inputType) {
@@ -182,6 +196,7 @@
             return;
         }
         $('category-name').textContent = 'Работа над ошибками';
+        finishText = FINISH_MISTAKES;
         index = 0;
         showQuestion();
     }
@@ -221,18 +236,20 @@
     async function startCategory(category) {
         showError('');
         try {
-            questions = prepareQuestions(shuffle(await api('/api/questions?category_id=' + encodeURIComponent(category.id))));
+            questions = prepareQuestions(shuffle(await api('/api/questions?category_id=' + encodeURIComponent(category.id) + '&limit=' + PORTION_SIZE)));
         } catch (err) {
             showError(err.message);
             return;
         }
         $('category-name').textContent = category.name;
+        finishText = FINISH_PORTION;
         index = 0;
         showQuestion();
     }
 
     function showQuestion() {
         if (index >= questions.length) {
+            $('finish-text').textContent = finishText;
             show('finish');
             return;
         }
@@ -278,6 +295,7 @@
                 } else if (input.checked) {
                     label.classList.add('wrong');
                 }
+                if (result.option_notes) appendNote(label.querySelector('.text'), result.option_notes[input.value]);
             });
             const status = $('result-status');
             status.textContent = result.correct ? 'Верно' : 'Неверно';
@@ -547,7 +565,7 @@
                 ? 'Ваш ответ: нет ответа'
                 : (r.answer.length > 1 ? 'Ваши ответы:' : 'Ваш ответ:');
             mine.appendChild(mineTitle);
-            if (r.answer !== null) appendAnswerLines(mine, question, r.answer);
+            if (r.answer !== null) appendAnswerLines(mine, question, r.answer, r.option_notes, r.correct_answer);
             const right = document.createElement('div');
             right.className = 'answer-block';
             const rightTitle = document.createElement('p');

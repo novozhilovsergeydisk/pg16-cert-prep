@@ -504,6 +504,22 @@ pre code {
     margin: 0 0 6px 4px;
 }
 
+.option-note {
+    display: block;
+    margin-top: 6px;
+    color: var(--muted);
+    font-size: 0.9rem;
+    line-height: 1.45;
+}
+
+.option.locked.wrong .option-note {
+    color: var(--bad);
+}
+
+.answer-line .option-note {
+    margin-top: 2px;
+}
+
 @media (max-width: 480px) {
     body {
         padding: 20px 12px 48px;
