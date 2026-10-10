@@ -492,7 +492,7 @@
             const input = document.createElement('input');
             input.type = 'checkbox';
             input.value = String(category.id);
-            input.checked = true;
+            input.checked = category.in_exam !== false;
             const badge = document.createElement('span');
             badge.className = 'badge';
             badge.textContent = '✓';

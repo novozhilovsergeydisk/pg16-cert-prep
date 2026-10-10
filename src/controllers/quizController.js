@@ -61,7 +61,7 @@ async function saveExam(userId, { total, correct, percent, passed, durationSecon
 async function getCategories(req, res) {
     try {
         const result = await pool.query(
-            `SELECT c.id, c.name, count(q.id)::int AS question_count
+            `SELECT c.id, c.name, c.in_exam, count(q.id)::int AS question_count
              FROM categories c
              LEFT JOIN questions q ON q.category_id = c.id
              GROUP BY c.id
@@ -157,7 +157,11 @@ async function getExam(req, res) {
     try {
         const result = categoryIds === null
             ? await pool.query(
-                'SELECT id, category_id, question_text, options, length(correct_answer) AS correct_count FROM questions ORDER BY random() LIMIT $1',
+                // Без явного выбора тем — только темы, входящие в экзамен.
+                `SELECT q.id, q.category_id, q.question_text, q.options, length(q.correct_answer) AS correct_count
+                 FROM questions q JOIN categories c ON c.id = q.category_id
+                 WHERE c.in_exam
+                 ORDER BY random() LIMIT $1`,
                 [count]
             )
             : await pool.query(

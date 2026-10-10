@@ -64,12 +64,13 @@ test('GET /api/test возвращает версию сервера', async () 
     assert.equal(typeof body.version, 'string');
 });
 
-test('GET /api/categories возвращает id, name и число вопросов, отсортировано по имени', async () => {
+test('GET /api/categories возвращает id, name, in_exam и число вопросов, отсортировано по имени', async () => {
     const { status, body } = await get('/api/categories');
     assert.equal(status, 200);
     assert.ok(Array.isArray(body) && body.length >= 1);
     for (const category of body) {
-        assert.deepEqual(Object.keys(category).sort(), ['id', 'name', 'question_count']);
+        assert.deepEqual(Object.keys(category).sort(), ['id', 'in_exam', 'name', 'question_count']);
+        assert.equal(typeof category.in_exam, 'boolean');
         assert.equal(Number.isInteger(category.question_count), true);
     }
     const names = body.map((c) => c.name);
@@ -641,4 +642,15 @@ test('Вход по ссылке гасит код из того же письм
     const mail = outbox[outbox.length - 1];
     assert.equal((await post('/api/auth/verify', { token: tokenFromMail(mail) }, null)).status, 200);
     assert.equal((await post('/api/auth/verify-code', { email, code: codeFromMail(mail) }, null)).status, 400);
+});
+
+test('Экзамен без выбора тем не берёт вопросы из тем вне экзамена', async () => {
+    const outside = (await pool.query('SELECT id FROM categories WHERE NOT in_exam')).rows.map((r) => r.id);
+    assert.ok(outside.length >= 1, 'есть хотя бы одна тема вне экзамена');
+    const exam = await get('/api/exam?count=200');
+    assert.equal(exam.status, 200);
+    assert.ok(exam.body.every((q) => !outside.includes(q.category_id)));
+    const chosen = await get('/api/exam?count=5&categories=' + outside[0]);
+    assert.equal(chosen.status, 200, 'при явном выборе тема вне экзамена доступна');
+    assert.ok(chosen.body.every((q) => q.category_id === outside[0]));
 });
