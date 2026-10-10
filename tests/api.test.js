@@ -1,21 +1,35 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 require('dotenv').config();
+// Письма в тестах не отправляются, а складываются в outbox.
+process.env.NODE_ENV = 'test';
 
+const crypto = require('crypto');
 const app = require('../server');
 const pool = require('../src/config/db');
+const { outbox } = require('../src/services/mailer');
 
+const TEST_DOMAIN = '@example.test';
 let server;
 let base;
-let logMark = 0;
-let historyMark = 0;
+let userA;
+let cookieA;
+
+// Тестовые пользователи создаются напрямую в базе; после тестов они удаляются вместе с ответами и экзаменами.
+async function createUser(role = 'user') {
+    const email = 'test-' + crypto.randomBytes(6).toString('hex') + TEST_DOMAIN;
+    const created = await pool.query('INSERT INTO users (email, role) VALUES ($1, $2) RETURNING id', [email, role]);
+    const sid = crypto.randomBytes(32).toString('base64url');
+    await pool.query(
+        "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ($1, $2, now() + interval '1 hour')",
+        [crypto.createHash('sha256').update(sid).digest(), created.rows[0].id]
+    );
+    return { id: created.rows[0].id, email, cookie: 'sid=' + sid };
+}
 
 before(async () => {
-    // Тесты пишут в журнал ответов на рабочей базе: всё, что добавлено после этой метки, удаляется в конце.
-    const mark = await pool.query('SELECT coalesce(max(id), 0) AS id FROM answer_log');
-    logMark = Number(mark.rows[0].id);
-    const historyRow = await pool.query('SELECT coalesce(max(id), 0) AS id FROM exam_history');
-    historyMark = Number(historyRow.rows[0].id);
+    userA = await createUser();
+    cookieA = userA.cookie;
     await new Promise((resolve) => {
         server = app.listen(0, resolve);
     });
@@ -23,24 +37,24 @@ before(async () => {
 });
 
 after(async () => {
-    await pool.query('DELETE FROM answer_log WHERE id > $1', [logMark]);
-    await pool.query('DELETE FROM exam_history WHERE id > $1', [historyMark]);
+    await pool.query("DELETE FROM users WHERE email LIKE 'test-%' || $1", [TEST_DOMAIN]);
+    await pool.query("DELETE FROM login_tokens WHERE email LIKE 'test-%' || $1", [TEST_DOMAIN]);
     await new Promise((resolve) => server.close(resolve));
     await pool.end();
 });
 
-async function get(path) {
-    const response = await fetch(base + path);
+async function get(path, cookie = cookieA) {
+    const response = await fetch(base + path, { headers: cookie ? { Cookie: cookie } : {} });
     return { status: response.status, body: await response.json() };
 }
 
-async function post(path, payload) {
+async function post(path, payload, cookie = cookieA, extraHeaders = {}) {
     const response = await fetch(base + path, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}), ...extraHeaders },
         body: JSON.stringify(payload),
     });
-    return { status: response.status, body: await response.json() };
+    return { status: response.status, body: await response.json(), headers: response.headers };
 }
 
 test('GET /api/test возвращает версию сервера', async () => {
@@ -302,7 +316,7 @@ test('Работа над ошибками: неверный ответ доба
 });
 
 test('Работа над ошибками: экзамен записывает только отвеченные вопросы', async () => {
-    const count = async (id) => Number((await pool.query('SELECT count(*) AS n FROM answer_log WHERE question_id = $1', [id])).rows[0].n);
+    const count = async (id) => Number((await pool.query('SELECT count(*) AS n FROM answer_log WHERE user_id = $1 AND question_id = $2', [userA.id, id])).rows[0].n);
     const before1 = await count(1);
     const before2 = await count(2);
     const r = await post('/api/exam/check', {
@@ -329,7 +343,7 @@ test('История экзаменов: проверка экзамена со�
         duration_seconds: 125,
     });
     assert.equal(r.status, 200);
-    const saved = await pool.query('SELECT * FROM exam_history WHERE id > $1 ORDER BY id', [mark]);
+    const saved = await pool.query('SELECT * FROM exam_history WHERE id > $1 AND user_id = $2 ORDER BY id', [mark, userA.id]);
     assert.equal(saved.rowCount, 1);
     const row = saved.rows[0];
     assert.equal(row.total, 2);
@@ -340,7 +354,7 @@ test('История экзаменов: проверка экзамена со�
 
     const noDuration = await post('/api/exam/check', { answers: [{ question_id: 1, answer: 'C' }] });
     assert.equal(noDuration.status, 200);
-    const last = await pool.query('SELECT duration_seconds, passed FROM exam_history ORDER BY id DESC LIMIT 1');
+    const last = await pool.query('SELECT duration_seconds, passed FROM exam_history WHERE user_id = $1 ORDER BY id DESC LIMIT 1', [userA.id]);
     assert.equal(last.rows[0].duration_seconds, null);
     assert.equal(last.rows[0].passed, true);
 });
@@ -391,9 +405,9 @@ test('GET /api/questions с limit отдаёт порцию без ответо�
 test('Умный выбор: сначала невиденные, затем с неверным последним ответом', async () => {
     const ids = (await pool.query('SELECT id FROM questions WHERE category_id = 1 ORDER BY id')).rows.map((r) => r.id);
     // все вопросы темы «отвечены верно», один — неверно последним
-    await pool.query('INSERT INTO answer_log (question_id, correct) SELECT unnest($1::int[]), true', [ids]);
+    await pool.query('INSERT INTO answer_log (user_id, question_id, correct) SELECT $1, unnest($2::int[]), true', [userA.id, ids]);
     const wrongId = ids[Math.floor(ids.length / 2)];
-    await pool.query('INSERT INTO answer_log (question_id, correct) VALUES ($1, false)', [wrongId]);
+    await pool.query('INSERT INTO answer_log (user_id, question_id, correct) VALUES ($1, $2, false)', [userA.id, wrongId]);
     const first = await get('/api/questions?category_id=1&limit=1');
     assert.equal(first.body[0].id, wrongId, 'вопрос с неверным последним ответом идёт первым');
 
@@ -432,5 +446,149 @@ test('Пояснения к вариантам отдаются только п�
         assert.equal(plain.body.option_notes, null);
     } finally {
         await pool.query('DELETE FROM questions WHERE id = $1', [id]);
+    }
+});
+
+// Вход по ссылке, роли и статистика
+
+function tokenFromMail(mail) {
+    const match = /#login=([A-Za-z0-9_-]{43})/.exec(mail.text);
+    assert.ok(match, 'в письме должна быть ссылка для входа');
+    return match[1];
+}
+
+function sidFrom(headers) {
+    const match = /(?:^|,\s*)sid=([A-Za-z0-9_-]{43});/.exec(headers.get('set-cookie') || '');
+    return match ? 'sid=' + match[1] : null;
+}
+
+test('Без входа API тренажёра и статистики недоступно', async () => {
+    for (const path of ['/api/me', '/api/categories', '/api/questions?category_id=1', '/api/mistakes', '/api/exam', '/api/exam/history', '/api/stats', '/api/admin/users']) {
+        const { status } = await get(path, null);
+        assert.equal(status, 401, `ожидался 401 для ${path}`);
+    }
+    const answer = await post('/api/answers', { question_id: 1, answer: 'C' }, null);
+    assert.equal(answer.status, 401);
+    const bogus = await get('/api/categories', 'sid=' + 'x'.repeat(43));
+    assert.equal(bogus.status, 401);
+});
+
+test('Вход по ссылке: письмо, одноразовый токен, сеанс, выход', async () => {
+    const email = 'test-' + crypto.randomBytes(6).toString('hex') + TEST_DOMAIN;
+    const sent = outbox.length;
+    const request = await post('/api/auth/request', { email: '  ' + email.toUpperCase() + ' ' }, null);
+    assert.equal(request.status, 200);
+    assert.deepEqual(request.body, { ok: true });
+    assert.equal(outbox.length, sent + 1);
+    const mail = outbox[outbox.length - 1];
+    assert.equal(mail.to, email);
+    assert.match(mail.subject, /^Вход на /);
+    assert.match(mail.text, /^Ссылка для входа действует 15 минут: http/);
+    const stored = await pool.query('SELECT count(*)::int AS n FROM login_tokens WHERE email = $1 AND token_hash = $2', [email, crypto.createHash('sha256').update(tokenFromMail(mail)).digest()]);
+    assert.equal(stored.rows[0].n, 1, 'в базе хранится хеш токена');
+
+    const verify = await post('/api/auth/verify', { token: tokenFromMail(mail) }, null);
+    assert.equal(verify.status, 200);
+    assert.deepEqual(verify.body, { email, role: 'user' });
+    const cookie = sidFrom(verify.headers);
+    assert.ok(cookie, 'ставится cookie сеанса');
+    assert.match(verify.headers.get('set-cookie'), /HttpOnly/i);
+    assert.match(verify.headers.get('set-cookie'), /SameSite=Lax/i);
+
+    const me = await get('/api/me', cookie);
+    assert.equal(me.status, 200);
+    assert.deepEqual(me.body, { email, role: 'user' });
+
+    const again = await post('/api/auth/verify', { token: tokenFromMail(mail) }, null);
+    assert.equal(again.status, 400, 'токен одноразовый');
+
+    const out = await post('/api/auth/logout', {}, cookie);
+    assert.equal(out.status, 200);
+    assert.equal((await get('/api/me', cookie)).status, 401, 'после выхода сеанс недействителен');
+});
+
+test('Вход по ссылке: некорректный email, частые запросы, просроченный и неверный токен', async () => {
+    for (const bad of ['', 'abc', 'a@b', 'a b@c.ru', 'x'.repeat(250) + '@a.ru', null, 5]) {
+        const { status } = await post('/api/auth/request', { email: bad }, null);
+        assert.equal(status, 400, `ожидался 400 для ${JSON.stringify(bad)}`);
+    }
+    const email = 'test-' + crypto.randomBytes(6).toString('hex') + TEST_DOMAIN;
+    assert.equal((await post('/api/auth/request', { email }, null)).status, 200);
+    assert.equal((await post('/api/auth/request', { email }, null)).status, 429, 'не чаще одного письма в минуту');
+
+    const token = tokenFromMail(outbox[outbox.length - 1]);
+    await pool.query("UPDATE login_tokens SET expires_at = now() - interval '1 second' WHERE email = $1", [email]);
+    assert.equal((await post('/api/auth/verify', { token }, null)).status, 400, 'просроченная ссылка не работает');
+
+    for (const bad of ['', 'abc', 'x'.repeat(43), null]) {
+        const { status } = await post('/api/auth/verify', { token: bad }, null);
+        assert.equal(status, 400);
+    }
+});
+
+test('POST с чужого сайта отклоняется', async () => {
+    const { status } = await post('/api/answers', { question_id: 1, answer: 'C' }, cookieA, { Origin: 'https://evil.example' });
+    assert.equal(status, 403);
+});
+
+test('Статистика личная: ответы и экзамены одного пользователя не видны другому', async () => {
+    const userB = await createUser();
+    await post('/api/answers', { question_id: 1, answer: 'A' }, userB.cookie);
+    await post('/api/exam/check', { answers: [{ question_id: 1, answer: 'A' }] }, userB.cookie);
+
+    const mistakesB = await get('/api/mistakes', userB.cookie);
+    assert.ok(mistakesB.body.some((q) => q.id === 1));
+    const fresh = await createUser();
+    assert.deepEqual((await get('/api/mistakes', fresh.cookie)).body, []);
+    assert.deepEqual((await get('/api/exam/history', fresh.cookie)).body, []);
+    assert.equal((await get('/api/exam/history', userB.cookie)).body.length, 1);
+
+    const stats = await get('/api/stats', userB.cookie);
+    assert.equal(stats.status, 200);
+    const topic = stats.body.topics.find((t) => t.id === 1);
+    assert.deepEqual(Object.keys(topic).sort(), ['answered', 'correct_percent', 'id', 'mistakes', 'name', 'question_count']);
+    assert.equal(topic.answered, 1);
+    assert.equal(topic.correct_percent, 0);
+    assert.equal(topic.mistakes, 1);
+    const empty = (await get('/api/stats', fresh.cookie)).body.topics.find((t) => t.id === 1);
+    assert.equal(empty.answered, 0);
+    assert.equal(empty.correct_percent, null);
+    assert.equal(empty.mistakes, 0);
+});
+
+test('Статистика пользователей и трудные вопросы доступны только админу', async () => {
+    for (const path of ['/api/admin/users', '/api/admin/users/1', '/api/admin/hard-questions']) {
+        assert.equal((await get(path)).status, 403, `обычному пользователю ${path} недоступен`);
+    }
+    const admin = await createUser('admin');
+    const student = await createUser();
+    for (let i = 0; i < 3; i += 1) {
+        await post('/api/answers', { question_id: 2, answer: 'A' }, student.cookie);
+    }
+    await post('/api/exam/check', { answers: [{ question_id: 1, answer: 'C' }] }, student.cookie);
+
+    const users = await get('/api/admin/users', admin.cookie);
+    assert.equal(users.status, 200);
+    const row = users.body.find((u) => u.id === student.id);
+    assert.equal(row.email, student.email);
+    assert.equal(row.answers, 4);
+    assert.equal(row.exams, 1);
+    assert.equal(row.last_exam_percent, 100);
+    assert.equal(row.last_exam_passed, true);
+
+    const detail = await get('/api/admin/users/' + student.id, admin.cookie);
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.user.email, student.email);
+    assert.equal(detail.body.exams.length, 1);
+    assert.ok(detail.body.topics.length >= 1);
+    assert.equal((await get('/api/admin/users/2147483647', admin.cookie)).status, 404);
+    assert.equal((await get('/api/admin/users/abc', admin.cookie)).status, 400);
+
+    const hard = await get('/api/admin/hard-questions', admin.cookie);
+    assert.equal(hard.status, 200);
+    assert.ok(hard.body.length <= 20);
+    for (const q of hard.body) {
+        assert.ok(q.answers >= 3 && q.error_percent > 0);
+        assert.deepEqual(Object.keys(q).sort(), ['answers', 'category_name', 'error_percent', 'id', 'question_text']);
     }
 });

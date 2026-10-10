@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const { examHistory } = require('./statsController');
 
 const INT4_MAX = 2147483647;
 
@@ -13,7 +14,6 @@ function parseId(value) {
 const EXAM_DEFAULT_COUNT = 30;
 const EXAM_MAX_COUNT = 200;
 const EXAM_PASS_PERCENT = 70;
-const HISTORY_LIMIT = 50;
 const MAX_DURATION_SECONDS = 24 * 3600;
 
 // Ответ — одна или несколько букв A–Z без повторов (до 8); порядок не важен, приводится к алфавитному.
@@ -33,13 +33,13 @@ function parseIdList(value) {
     return [...new Set(ids)];
 }
 
-// Журнал ответов нужен режиму «Работа над ошибками». Сбой записи не должен ломать проверку ответа.
-async function logAnswers(entries) {
+// Журнал ответов пользователя нужен режиму «Работа над ошибками» и статистике. Сбой записи не должен ломать проверку ответа.
+async function logAnswers(userId, entries) {
     if (entries.length === 0) return;
     try {
         await pool.query(
-            'INSERT INTO answer_log (question_id, correct) SELECT * FROM unnest($1::int[], $2::boolean[])',
-            [entries.map((e) => e.questionId), entries.map((e) => e.correct)]
+            'INSERT INTO answer_log (user_id, question_id, correct) SELECT $1::int, * FROM unnest($2::int[], $3::boolean[])',
+            [userId, entries.map((e) => e.questionId), entries.map((e) => e.correct)]
         );
     } catch (err) {
         // журнал вторичен: ответ пользователю всё равно отдаётся
@@ -47,11 +47,11 @@ async function logAnswers(entries) {
 }
 
 // История экзаменов вторична: сбой записи не должен ломать выдачу результата.
-async function saveExam({ total, correct, percent, passed, durationSeconds }) {
+async function saveExam(userId, { total, correct, percent, passed, durationSeconds }) {
     try {
         await pool.query(
-            'INSERT INTO exam_history (total, correct, percent, passed, duration_seconds) VALUES ($1, $2, $3, $4, $5)',
-            [total, correct, percent, passed, durationSeconds]
+            'INSERT INTO exam_history (user_id, total, correct, percent, passed, duration_seconds) VALUES ($1, $2, $3, $4, $5, $6)',
+            [userId, total, correct, percent, passed, durationSeconds]
         );
     } catch (err) {
         // результат всё равно отдаётся пользователю
@@ -83,8 +83,8 @@ async function getQuestions(req, res) {
         return res.status(400).json({ error: 'Некорректный limit' });
     }
     try {
-        // Без limit — все вопросы темы. С limit — порция с умным выбором: сначала невиденные,
-        // затем те, где последний ответ неверный, затем отвеченные верно — давно отвеченные раньше.
+        // Без limit — все вопросы темы. С limit — порция с умным выбором по ответам этого пользователя:
+        // сначала невиденные, затем те, где последний ответ неверный, затем отвеченные верно — давно отвеченные раньше.
         const result = limit === null
             ? await pool.query(
                 'SELECT id, category_id, question_text, options, length(correct_answer) AS correct_count FROM questions WHERE category_id = $1 ORDER BY id',
@@ -96,7 +96,7 @@ async function getQuestions(req, res) {
                  LEFT JOIN LATERAL (
                      SELECT l.correct, l.answered_at
                      FROM answer_log l
-                     WHERE l.question_id = q.id
+                     WHERE l.user_id = $3 AND l.question_id = q.id
                      ORDER BY l.answered_at DESC, l.id DESC
                      LIMIT 1
                  ) last ON true
@@ -105,7 +105,7 @@ async function getQuestions(req, res) {
                           CASE WHEN last.correct THEN last.answered_at END ASC NULLS FIRST,
                           random()
                  LIMIT $2`,
-                [categoryId, limit]
+                [categoryId, limit, req.user.id]
             );
         res.json(result.rows);
     } catch (err) {
@@ -130,7 +130,7 @@ async function postAnswer(req, res) {
         }
         const { correct_answer, explanation, option_notes } = result.rows[0];
         const correct = answer === correct_answer;
-        await logAnswers([{ questionId, correct }]);
+        await logAnswers(req.user.id, [{ questionId, correct }]);
         res.json({
             correct,
             correct_answer,
@@ -218,10 +218,10 @@ async function postExamCheck(req, res) {
                 option_notes: row.option_notes,
             };
         });
-        await logAnswers(results.filter((r) => r.answer !== null).map((r) => ({ questionId: r.question_id, correct: r.correct })));
+        await logAnswers(req.user.id, results.filter((r) => r.answer !== null).map((r) => ({ questionId: r.question_id, correct: r.correct })));
         const correct = results.filter((r) => r.correct).length;
         const percent = Math.round((correct * 100) / results.length);
-        await saveExam({
+        await saveExam(req.user.id, {
             total: results.length,
             correct,
             percent,
@@ -241,7 +241,7 @@ async function postExamCheck(req, res) {
     }
 }
 
-// Вопросы, на которые последний ответ был неверным.
+// Вопросы, на которые последний ответ пользователя был неверным.
 async function getMistakes(req, res) {
     try {
         const result = await pool.query(
@@ -250,10 +250,12 @@ async function getMistakes(req, res) {
              JOIN (
                  SELECT DISTINCT ON (question_id) question_id, correct
                  FROM answer_log
+                 WHERE user_id = $1
                  ORDER BY question_id, answered_at DESC, id DESC
              ) last ON last.question_id = q.id
              WHERE NOT last.correct
-             ORDER BY q.id`
+             ORDER BY q.id`,
+            [req.user.id]
         );
         res.json(result.rows);
     } catch (err) {
@@ -261,17 +263,10 @@ async function getMistakes(req, res) {
     }
 }
 
-// Последние завершённые экзамены, новые сверху.
+// Последние завершённые экзамены пользователя, новые сверху.
 async function getExamHistory(req, res) {
     try {
-        const result = await pool.query(
-            `SELECT id, finished_at, total, correct, percent, passed, duration_seconds
-             FROM exam_history
-             ORDER BY finished_at DESC, id DESC
-             LIMIT $1`,
-            [HISTORY_LIMIT]
-        );
-        res.json(result.rows);
+        res.json(await examHistory(req.user.id));
     } catch (err) {
         res.status(500).json({ error: 'Ошибка запроса к БД' });
     }

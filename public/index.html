@@ -10,13 +10,46 @@
 <body>
     <main>
         <h1>Симулятор сертификации PostgreSQL 16</h1>
+        <div id="user-bar" class="user-bar" hidden>
+            <span id="user-email" class="user-email"></span>
+            <button id="logout" class="btn-secondary" type="button">Выйти</button>
+        </div>
         <div id="error" role="alert" hidden></div>
+
+        <section id="login-view" hidden>
+            <h2>Вход</h2>
+            <form id="login-form" class="login-form">
+                <label for="login-email">Email</label>
+                <input id="login-email" type="email" autocomplete="email" maxlength="254" required>
+                <button id="login-submit" class="btn" type="submit">Получить ссылку</button>
+            </form>
+            <p class="progress"><button id="open-privacy" class="link" type="button">Персональные данные</button></p>
+        </section>
+
+        <section id="login-sent-view" hidden>
+            <h2>Проверьте почту</h2>
+            <p>Ссылка для входа отправлена на <strong id="sent-email"></strong>. Она действует 15 минут.</p>
+            <button id="login-again" class="btn-secondary" type="button">Указать другой email</button>
+        </section>
+
+        <section id="login-confirm-view" hidden>
+            <h2>Вход</h2>
+            <button id="login-confirm" class="btn" type="button">Войти</button>
+        </section>
+
+        <section id="privacy-view" hidden>
+            <h2>Персональные данные</h2>
+            <p>Email используется только для входа и никому не передаётся.</p>
+            <button id="privacy-back" class="btn-secondary" type="button">Назад</button>
+        </section>
 
         <section id="categories-view">
             <div class="actions top-actions">
                 <button id="open-exam" class="btn" type="button">Экзамен</button>
                 <button id="open-mistakes" class="btn-secondary" type="button">Работа над ошибками</button>
                 <button id="open-history" class="btn-secondary" type="button">История экзаменов</button>
+                <button id="open-stats" class="btn-secondary" type="button">Моя статистика</button>
+                <button id="open-admin" class="btn-secondary" type="button" hidden>Статистика пользователей</button>
             </div>
             <h2>Категории</h2>
             <ul id="categories" class="cards"></ul>
@@ -80,6 +113,46 @@
             <h2>История экзаменов</h2>
             <p id="history-empty" class="progress" hidden>Пока нет пройденных экзаменов.</p>
             <ul id="history-list" class="plain"></ul>
+        </section>
+
+        <section id="stats-view" hidden>
+            <button id="stats-back" class="btn-secondary back" type="button">К списку категорий</button>
+            <h2>Моя статистика: практика по темам</h2>
+            <div class="table-wrap">
+                <table class="stats-table">
+                    <thead><tr><th>Тема</th><th class="num">Решено</th><th class="num">Верных</th><th class="num">В ошибках</th></tr></thead>
+                    <tbody id="stats-topics"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <section id="admin-view" hidden>
+            <button id="admin-back" class="btn-secondary back" type="button">К списку категорий</button>
+            <h2>Пользователи</h2>
+            <div class="table-wrap">
+                <table class="stats-table">
+                    <thead><tr><th>Email</th><th>Регистрация</th><th>Последний вход</th><th class="num">Ответов</th><th class="num">Верных</th><th class="num">Экзаменов</th><th class="num">Последний экзамен</th></tr></thead>
+                    <tbody id="admin-users"></tbody>
+                </table>
+            </div>
+            <h2>Трудные вопросы</h2>
+            <p id="hard-empty" class="progress" hidden>Пока мало ответов: в список попадают вопросы, на которые ответили хотя бы 3 раза.</p>
+            <ol id="hard-list" class="hard-list"></ol>
+        </section>
+
+        <section id="admin-user-view" hidden>
+            <button id="admin-user-back" class="btn-secondary back" type="button">К списку пользователей</button>
+            <h2 id="admin-user-email"></h2>
+            <h2>Практика по темам</h2>
+            <div class="table-wrap">
+                <table class="stats-table">
+                    <thead><tr><th>Тема</th><th class="num">Решено</th><th class="num">Верных</th><th class="num">В ошибках</th></tr></thead>
+                    <tbody id="admin-user-topics"></tbody>
+                </table>
+            </div>
+            <h2>Экзамены</h2>
+            <p id="admin-user-exams-empty" class="progress" hidden>Пока нет пройденных экзаменов.</p>
+            <ul id="admin-user-exams" class="plain"></ul>
         </section>
 
         <section id="exam-result-view" hidden>

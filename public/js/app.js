@@ -1,7 +1,8 @@
 (function () {
     const $ = (id) => document.getElementById(id);
 
-    const VIEWS = ['categories', 'question', 'finish', 'exam-setup', 'exam', 'exam-result', 'history'];
+    const VIEWS = ['login', 'login-sent', 'login-confirm', 'privacy', 'categories', 'question', 'finish',
+        'exam-setup', 'exam', 'exam-result', 'history', 'stats', 'admin', 'admin-user'];
     const EXAM_COUNTS = [20, 30, 50];
     const EXAM_DEFAULT_COUNT = 30;
     const SECONDS_PER_QUESTION = 90;
@@ -15,6 +16,9 @@
     let questions = [];
     let index = 0;
     let exam = null;
+    let user = null;
+    let loginToken = null;
+    let privacyReturn = 'login';
 
     function show(name) {
         VIEWS.forEach((key) => {
@@ -31,10 +35,120 @@
     async function api(url, options) {
         const response = await fetch(url, options);
         const data = await response.json().catch(() => null);
+        if (response.status === 401) {
+            // Сеанс истёк или его нет: показать вход без сообщения об ошибке.
+            showLogin();
+            throw new Error('');
+        }
         if (!response.ok) {
             throw new Error((data && data.error) || 'Ошибка запроса');
         }
         return data;
+    }
+
+    function postJson(url, payload) {
+        return api(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+    }
+
+    function formatDate(value) {
+        return value ? new Date(value).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+    }
+
+    // Вход по ссылке из письма
+
+    function showLogin() {
+        user = null;
+        stopTimer();
+        exam = null;
+        $('user-bar').hidden = true;
+        $('login-submit').disabled = false;
+        show('login');
+    }
+
+    async function requestLink(event) {
+        event.preventDefault();
+        showError('');
+        const email = $('login-email').value.trim();
+        if (!email) {
+            showError('Введите email');
+            return;
+        }
+        $('login-submit').disabled = true;
+        try {
+            await postJson('/api/auth/request', { email });
+            $('sent-email').textContent = email;
+            show('login-sent');
+        } catch (err) {
+            showError(err.message);
+        } finally {
+            $('login-submit').disabled = false;
+        }
+    }
+
+    async function confirmLogin() {
+        showError('');
+        $('login-confirm').disabled = true;
+        try {
+            const me = await postJson('/api/auth/verify', { token: loginToken });
+            loginToken = null;
+            startApp(me);
+        } catch (err) {
+            loginToken = null;
+            showLogin();
+            showError(err.message);
+        } finally {
+            $('login-confirm').disabled = false;
+        }
+    }
+
+    async function logout() {
+        showError('');
+        try {
+            await postJson('/api/auth/logout', {});
+        } catch (err) {
+            // сеанс на сервере мог уже истечь — экран входа показывается в любом случае
+        }
+        showLogin();
+    }
+
+    function openPrivacy() {
+        privacyReturn = user ? 'categories' : 'login';
+        showError('');
+        show('privacy');
+    }
+
+    function startApp(me) {
+        user = me;
+        $('user-email').textContent = me.email;
+        $('user-bar').hidden = false;
+        $('open-admin').hidden = me.role !== 'admin';
+        loadCategories();
+    }
+
+    // Ссылка из письма: токен в части после #, она не уходит на сервер при загрузке страницы.
+    function takeLoginLink() {
+        const match = /^#login=([A-Za-z0-9_-]{43})$/.exec(window.location.hash);
+        if (!match) return false;
+        loginToken = match[1];
+        history.replaceState(null, '', window.location.pathname);
+        stopTimer();
+        exam = null;
+        showError('');
+        show('login-confirm');
+        return true;
+    }
+
+    async function init() {
+        if (takeLoginLink()) return;
+        try {
+            startApp(await api('/api/me'));
+        } catch (err) {
+            if (err.message) showError(err.message);
+        }
     }
 
     function plural(n, one, few, many) {
@@ -483,24 +597,14 @@
 
     // История экзаменов
 
-    async function openHistory() {
-        showError('');
-        let items;
-        try {
-            items = await api('/api/exam/history');
-        } catch (err) {
-            showError(err.message);
-            return;
-        }
-        const list = $('history-list');
+    function renderExamRows(list, items) {
         list.textContent = '';
-        $('history-empty').hidden = items.length > 0;
         items.forEach((item) => {
             const row = document.createElement('li');
             row.className = 'history-row';
             const when = document.createElement('span');
             when.className = 'history-date';
-            when.textContent = new Date(item.finished_at).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
+            when.textContent = formatDate(item.finished_at);
             const score = document.createElement('span');
             score.className = 'history-score';
             score.textContent = item.correct + ' из ' + item.total + ', ' + item.percent + '%';
@@ -516,7 +620,123 @@
             row.appendChild(time);
             list.appendChild(row);
         });
+    }
+
+    async function openHistory() {
+        showError('');
+        let items;
+        try {
+            items = await api('/api/exam/history');
+        } catch (err) {
+            showError(err.message);
+            return;
+        }
+        renderExamRows($('history-list'), items);
+        $('history-empty').hidden = items.length > 0;
         show('history');
+    }
+
+    // Статистика
+
+    function cell(row, text, numeric) {
+        const td = document.createElement('td');
+        td.textContent = text;
+        if (numeric) td.className = 'num';
+        row.appendChild(td);
+        return td;
+    }
+
+    function percentText(value) {
+        return value === null || value === undefined ? '—' : value + '%';
+    }
+
+    function renderTopicRows(tbody, topics) {
+        tbody.textContent = '';
+        topics.forEach((topic) => {
+            const row = document.createElement('tr');
+            cell(row, topic.name);
+            cell(row, topic.answered + ' из ' + topic.question_count, true);
+            cell(row, percentText(topic.correct_percent), true);
+            cell(row, String(topic.mistakes), true);
+            tbody.appendChild(row);
+        });
+    }
+
+    async function openStats() {
+        showError('');
+        let data;
+        try {
+            data = await api('/api/stats');
+        } catch (err) {
+            showError(err.message);
+            return;
+        }
+        renderTopicRows($('stats-topics'), data.topics);
+        show('stats');
+    }
+
+    async function openAdmin() {
+        showError('');
+        let users;
+        let hard;
+        try {
+            [users, hard] = await Promise.all([api('/api/admin/users'), api('/api/admin/hard-questions')]);
+        } catch (err) {
+            showError(err.message);
+            return;
+        }
+        const tbody = $('admin-users');
+        tbody.textContent = '';
+        users.forEach((item) => {
+            const row = document.createElement('tr');
+            row.className = 'clickable';
+            row.tabIndex = 0;
+            cell(row, item.email + (item.role === 'admin' ? ' (админ)' : ''));
+            cell(row, formatDate(item.created_at));
+            cell(row, formatDate(item.last_login_at));
+            cell(row, String(item.answers), true);
+            cell(row, percentText(item.correct_percent), true);
+            cell(row, String(item.exams), true);
+            cell(row, item.last_exam_percent === null ? '—'
+                : item.last_exam_percent + '%, ' + (item.last_exam_passed ? 'сдан' : 'не сдан'), true);
+            row.addEventListener('click', () => openAdminUser(item.id));
+            row.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') openAdminUser(item.id);
+            });
+            tbody.appendChild(row);
+        });
+
+        const list = $('hard-list');
+        list.textContent = '';
+        $('hard-empty').hidden = hard.length > 0;
+        hard.forEach((item) => {
+            const li = document.createElement('li');
+            const meta = document.createElement('div');
+            meta.className = 'hard-meta';
+            meta.textContent = item.category_name + ' · ответов: ' + item.answers + ' · ошибок: ' + item.error_percent + '%';
+            const text = document.createElement('div');
+            renderRich(text, item.question_text);
+            li.appendChild(meta);
+            li.appendChild(text);
+            list.appendChild(li);
+        });
+        show('admin');
+    }
+
+    async function openAdminUser(id) {
+        showError('');
+        let data;
+        try {
+            data = await api('/api/admin/users/' + encodeURIComponent(id));
+        } catch (err) {
+            showError(err.message);
+            return;
+        }
+        $('admin-user-email').textContent = data.user.email;
+        renderTopicRows($('admin-user-topics'), data.topics);
+        renderExamRows($('admin-user-exams'), data.exams);
+        $('admin-user-exams-empty').hidden = data.exams.length > 0;
+        show('admin-user');
     }
 
     function renderResult(result) {
@@ -614,5 +834,26 @@
     $('result-new').addEventListener('click', openExamSetup);
     $('result-back').addEventListener('click', loadCategories);
 
-    loadCategories();
+    $('login-form').addEventListener('submit', requestLink);
+    $('login-again').addEventListener('click', () => {
+        showError('');
+        show('login');
+    });
+    $('login-confirm').addEventListener('click', confirmLogin);
+    $('logout').addEventListener('click', logout);
+    $('open-privacy').addEventListener('click', openPrivacy);
+    $('privacy-back').addEventListener('click', () => {
+        if (privacyReturn === 'categories') loadCategories();
+        else show('login');
+    });
+    $('open-stats').addEventListener('click', openStats);
+    $('stats-back').addEventListener('click', loadCategories);
+    $('open-admin').addEventListener('click', openAdmin);
+    $('admin-back').addEventListener('click', loadCategories);
+    $('admin-user-back').addEventListener('click', openAdmin);
+
+    // Ссылку могут открыть во вкладке, где сайт уже открыт: тогда меняется только часть после #.
+    window.addEventListener('hashchange', takeLoginLink);
+
+    init();
 })();

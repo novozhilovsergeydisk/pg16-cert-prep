@@ -8,9 +8,12 @@ const {
     getMistakes,
     getExamHistory,
 } = require('../controllers/quizController');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Все запросы тренажёра — только после входа.
+router.use(requireAuth);
 router.get('/categories', getCategories);
 router.get('/questions', getQuestions);
 router.post('/answers', postAnswer);
