@@ -78,11 +78,35 @@ async function getQuestions(req, res) {
     if (categoryId === null) {
         return res.status(400).json({ error: 'Некорректный category_id' });
     }
+    const limit = req.query.limit === undefined ? null : parseId(req.query.limit);
+    if (req.query.limit !== undefined && (limit === null || limit > EXAM_MAX_COUNT)) {
+        return res.status(400).json({ error: 'Некорректный limit' });
+    }
     try {
-        const result = await pool.query(
-            'SELECT id, category_id, question_text, options, length(correct_answer) AS correct_count FROM questions WHERE category_id = $1 ORDER BY id',
-            [categoryId]
-        );
+        // Без limit — все вопросы темы. С limit — порция с умным выбором: сначала невиденные,
+        // затем те, где последний ответ неверный, затем отвеченные верно — давно отвеченные раньше.
+        const result = limit === null
+            ? await pool.query(
+                'SELECT id, category_id, question_text, options, length(correct_answer) AS correct_count FROM questions WHERE category_id = $1 ORDER BY id',
+                [categoryId]
+            )
+            : await pool.query(
+                `SELECT q.id, q.category_id, q.question_text, q.options, length(q.correct_answer) AS correct_count
+                 FROM questions q
+                 LEFT JOIN LATERAL (
+                     SELECT l.correct, l.answered_at
+                     FROM answer_log l
+                     WHERE l.question_id = q.id
+                     ORDER BY l.answered_at DESC, l.id DESC
+                     LIMIT 1
+                 ) last ON true
+                 WHERE q.category_id = $1
+                 ORDER BY CASE WHEN last.answered_at IS NULL THEN 0 WHEN NOT last.correct THEN 1 ELSE 2 END,
+                          CASE WHEN last.correct THEN last.answered_at END ASC NULLS FIRST,
+                          random()
+                 LIMIT $2`,
+                [categoryId, limit]
+            );
         res.json(result.rows);
     } catch (err) {
         res.status(500).json({ error: 'Ошибка запроса к БД' });
@@ -98,19 +122,20 @@ async function postAnswer(req, res) {
     }
     try {
         const result = await pool.query(
-            'SELECT correct_answer, explanation FROM questions WHERE id = $1',
+            'SELECT correct_answer, explanation, option_notes FROM questions WHERE id = $1',
             [questionId]
         );
         if (result.rowCount === 0) {
             return res.status(404).json({ error: 'Вопрос не найден' });
         }
-        const { correct_answer, explanation } = result.rows[0];
+        const { correct_answer, explanation, option_notes } = result.rows[0];
         const correct = answer === correct_answer;
         await logAnswers([{ questionId, correct }]);
         res.json({
             correct,
             correct_answer,
             explanation,
+            option_notes,
         });
     } catch (err) {
         res.status(500).json({ error: 'Ошибка запроса к БД' });
@@ -173,7 +198,7 @@ async function postExamCheck(req, res) {
     }
     try {
         const result = await pool.query(
-            'SELECT id, category_id, correct_answer, explanation FROM questions WHERE id = ANY($1::int[])',
+            'SELECT id, category_id, correct_answer, explanation, option_notes FROM questions WHERE id = ANY($1::int[])',
             [submitted.map((s) => s.questionId)]
         );
         if (result.rowCount !== submitted.length) {
@@ -190,6 +215,7 @@ async function postExamCheck(req, res) {
                 correct_answer: correctAnswer,
                 correct: answer === correctAnswer,
                 explanation: row.explanation,
+                option_notes: row.option_notes,
             };
         });
         await logAnswers(results.filter((r) => r.answer !== null).map((r) => ({ questionId: r.question_id, correct: r.correct })));

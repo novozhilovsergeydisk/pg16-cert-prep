@@ -370,3 +370,67 @@ test('GET /api/exam/history отдаёт экзамены, новые сверх
     const times = body.map((e) => new Date(e.finished_at).getTime());
     assert.deepEqual(times, [...times].sort((a, b) => b - a));
 });
+
+test('GET /api/questions с limit отдаёт порцию без ответов и пояснений', async () => {
+    const { status, body } = await get('/api/questions?category_id=1&limit=5');
+    assert.equal(status, 200);
+    assert.equal(body.length, 5);
+    assert.equal(new Set(body.map((q) => q.id)).size, 5);
+    for (const q of body) {
+        assert.equal(q.category_id, 1);
+        assert.equal('correct_answer' in q, false);
+        assert.equal('explanation' in q, false);
+        assert.equal('option_notes' in q, false);
+    }
+    for (const bad of ['0', 'abc', '201', '-1', '1.5']) {
+        const r = await get('/api/questions?category_id=1&limit=' + bad);
+        assert.equal(r.status, 400, `ожидался 400 для limit=${bad}`);
+    }
+});
+
+test('Умный выбор: сначала невиденные, затем с неверным последним ответом', async () => {
+    const ids = (await pool.query('SELECT id FROM questions WHERE category_id = 1 ORDER BY id')).rows.map((r) => r.id);
+    // все вопросы темы «отвечены верно», один — неверно последним
+    await pool.query('INSERT INTO answer_log (question_id, correct) SELECT unnest($1::int[]), true', [ids]);
+    const wrongId = ids[Math.floor(ids.length / 2)];
+    await pool.query('INSERT INTO answer_log (question_id, correct) VALUES ($1, false)', [wrongId]);
+    const first = await get('/api/questions?category_id=1&limit=1');
+    assert.equal(first.body[0].id, wrongId, 'вопрос с неверным последним ответом идёт первым');
+
+    // невиденный вопрос идёт раньше ошибочного
+    const created = await pool.query(
+        `INSERT INTO questions (category_id, question_text, options, correct_answer, explanation)
+         VALUES (1, 'Тестовый невиденный вопрос', '{"A":"a","B":"b","C":"c","D":"d"}'::jsonb, 'A', 'тест')
+         RETURNING id`
+    );
+    const unseenId = created.rows[0].id;
+    try {
+        const top = await get('/api/questions?category_id=1&limit=2');
+        assert.deepEqual(top.body.map((q) => q.id), [unseenId, wrongId]);
+    } finally {
+        await pool.query('DELETE FROM questions WHERE id = $1', [unseenId]);
+    }
+});
+
+test('Пояснения к вариантам отдаются только после ответа', async () => {
+    const notes = { A: 'верный: пояснение A', B: 'неверный: пояснение B', C: 'неверный: пояснение C', D: 'неверный: пояснение D' };
+    const created = await pool.query(
+        `INSERT INTO questions (category_id, question_text, options, correct_answer, explanation, option_notes)
+         VALUES (1, 'Тестовый вопрос с пояснениями', '{"A":"a","B":"b","C":"c","D":"d"}'::jsonb, 'A', 'тест', $1::jsonb)
+         RETURNING id`,
+        [JSON.stringify(notes)]
+    );
+    const id = created.rows[0].id;
+    try {
+        const all = await get('/api/questions?category_id=1');
+        assert.equal('option_notes' in all.body.find((q) => q.id === id), false);
+        const answer = await post('/api/answers', { question_id: id, answer: 'B' });
+        assert.deepEqual(answer.body.option_notes, notes);
+        const exam = await post('/api/exam/check', { answers: [{ question_id: id, answer: 'C' }] });
+        assert.deepEqual(exam.body.results[0].option_notes, notes);
+        const plain = await post('/api/answers', { question_id: 1, answer: 'C' });
+        assert.equal(plain.body.option_notes, null);
+    } finally {
+        await pool.query('DELETE FROM questions WHERE id = $1', [id]);
+    }
+});
