@@ -24,11 +24,12 @@ function readCookie(req, name) {
     return null;
 }
 
-// POST с чужого сайта отклоняется. Запросы без Origin (не из браузера) пропускаются.
+// POST с чужого сайта отклоняется: Origin должен совпадать с адресом сайта (APP_URL)
+// или с адресом, по которому открыта страница. Запросы без Origin (не из браузера) пропускаются.
 function checkOrigin(req, res, next) {
     if (req.method === 'POST') {
         const origin = req.get('origin');
-        if (origin && origin !== new URL(appUrl()).origin) {
+        if (origin && origin !== new URL(appUrl()).origin && origin !== `${req.protocol}://${req.get('host')}`) {
             return res.status(403).json({ error: 'Запрос отклонён' });
         }
     }

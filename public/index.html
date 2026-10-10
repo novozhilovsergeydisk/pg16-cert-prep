@@ -28,7 +28,12 @@
 
         <section id="login-sent-view" hidden>
             <h2>Проверьте почту</h2>
-            <p>Ссылка для входа отправлена на <strong id="sent-email"></strong>. Она действует 15 минут.</p>
+            <p>Ссылка и код для входа отправлены на <strong id="sent-email"></strong>. Они действуют 15 минут.</p>
+            <form id="code-form" class="login-form">
+                <label for="login-code">Код из письма</label>
+                <input id="login-code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+                <button id="code-submit" class="btn" type="submit">Войти</button>
+            </form>
             <button id="login-again" class="btn-secondary" type="button">Указать другой email</button>
         </section>
 

@@ -18,6 +18,7 @@
     let exam = null;
     let user = null;
     let loginToken = null;
+    let loginEmail = '';
     let privacyReturn = 'login';
 
     function show(name) {
@@ -80,8 +81,11 @@
         $('login-submit').disabled = true;
         try {
             await postJson('/api/auth/request', { email });
+            loginEmail = email;
             $('sent-email').textContent = email;
+            $('login-code').value = '';
             show('login-sent');
+            $('login-code').focus();
         } catch (err) {
             showError(err.message);
         } finally {
@@ -102,6 +106,24 @@
             showError(err.message);
         } finally {
             $('login-confirm').disabled = false;
+        }
+    }
+
+    async function submitCode(event) {
+        event.preventDefault();
+        showError('');
+        const code = $('login-code').value.trim();
+        if (!/^[0-9]{6}$/.test(code)) {
+            showError('Введите 6 цифр из письма');
+            return;
+        }
+        $('code-submit').disabled = true;
+        try {
+            startApp(await postJson('/api/auth/verify-code', { email: loginEmail, code }));
+        } catch (err) {
+            showError(err.message);
+        } finally {
+            $('code-submit').disabled = false;
         }
     }
 
@@ -840,6 +862,7 @@
         show('login');
     });
     $('login-confirm').addEventListener('click', confirmLogin);
+    $('code-form').addEventListener('submit', submitCode);
     $('logout').addEventListener('click', logout);
     $('open-privacy').addEventListener('click', openPrivacy);
     $('privacy-back').addEventListener('click', () => {

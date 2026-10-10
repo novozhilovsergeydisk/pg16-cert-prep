@@ -526,9 +526,11 @@ test('Вход по ссылке: некорректный email, частые �
     }
 });
 
-test('POST с чужого сайта отклоняется', async () => {
+test('POST с чужого сайта отклоняется, с адреса самого сайта проходит', async () => {
     const { status } = await post('/api/answers', { question_id: 1, answer: 'C' }, cookieA, { Origin: 'https://evil.example' });
     assert.equal(status, 403);
+    const same = await post('/api/answers', { question_id: 1, answer: 'C' }, cookieA, { Origin: base });
+    assert.equal(same.status, 200, 'страница открыта по тому же адресу, что и сервер');
 });
 
 test('Статистика личная: ответы и экзамены одного пользователя не видны другому', async () => {
@@ -591,4 +593,52 @@ test('Статистика пользователей и трудные вопр
         assert.ok(q.answers >= 3 && q.error_percent > 0);
         assert.deepEqual(Object.keys(q).sort(), ['answers', 'category_name', 'error_percent', 'id', 'question_text']);
     }
+});
+
+function codeFromMail(mail) {
+    const match = /код на странице входа: (\d{6})$/.exec(mail.text);
+    assert.ok(match, 'в письме должен быть 6-значный код');
+    return match[1];
+}
+
+test('Вход по коду из письма: код одноразовый и гасит ссылку', async () => {
+    const email = 'test-' + crypto.randomBytes(6).toString('hex') + TEST_DOMAIN;
+    assert.equal((await post('/api/auth/request', { email }, null)).status, 200);
+    const mail = outbox[outbox.length - 1];
+    const code = codeFromMail(mail);
+
+    const ok = await post('/api/auth/verify-code', { email: email.toUpperCase(), code }, null);
+    assert.equal(ok.status, 200);
+    assert.deepEqual(ok.body, { email, role: 'user' });
+    const cookie = sidFrom(ok.headers);
+    assert.ok(cookie, 'ставится cookie сеанса');
+    assert.equal((await get('/api/me', cookie)).status, 200);
+
+    assert.equal((await post('/api/auth/verify-code', { email, code }, null)).status, 400, 'код одноразовый');
+    assert.equal((await post('/api/auth/verify', { token: tokenFromMail(mail) }, null)).status, 400, 'после входа по коду ссылка не работает');
+});
+
+test('Вход по коду: 5 неверных попыток гасят запрос, неверный формат отклоняется', async () => {
+    const email = 'test-' + crypto.randomBytes(6).toString('hex') + TEST_DOMAIN;
+    assert.equal((await post('/api/auth/request', { email }, null)).status, 200);
+    const mail = outbox[outbox.length - 1];
+    const code = codeFromMail(mail);
+    const wrong = code === '000000' ? '000001' : '000000';
+    for (let i = 0; i < 5; i += 1) {
+        assert.equal((await post('/api/auth/verify-code', { email, code: wrong }, null)).status, 400);
+    }
+    assert.equal((await post('/api/auth/verify-code', { email, code }, null)).status, 400, 'после 5 ошибок верный код уже не принимается');
+    assert.equal((await post('/api/auth/verify', { token: tokenFromMail(mail) }, null)).status, 400, 'и ссылка тоже');
+
+    for (const payload of [{}, { email }, { email, code: '12345' }, { email, code: 'abcdef' }, { email, code: 123456 }, { email: 'bad', code: '123456' }]) {
+        assert.equal((await post('/api/auth/verify-code', payload, null)).status, 400, `ожидался 400 для ${JSON.stringify(payload)}`);
+    }
+});
+
+test('Вход по ссылке гасит код из того же письма', async () => {
+    const email = 'test-' + crypto.randomBytes(6).toString('hex') + TEST_DOMAIN;
+    assert.equal((await post('/api/auth/request', { email }, null)).status, 200);
+    const mail = outbox[outbox.length - 1];
+    assert.equal((await post('/api/auth/verify', { token: tokenFromMail(mail) }, null)).status, 200);
+    assert.equal((await post('/api/auth/verify-code', { email, code: codeFromMail(mail) }, null)).status, 400);
 });
