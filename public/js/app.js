@@ -129,6 +129,7 @@
 
     async function logout() {
         showError('');
+        clearSavedExam();
         try {
             await postJson('/api/auth/logout', {});
         } catch (err) {
@@ -367,6 +368,7 @@
         } catch (err) {
             showError(err.message);
         }
+        checkSavedExam();
     }
 
     async function startCategory(category) {
@@ -508,6 +510,106 @@
         show('exam-setup');
     }
 
+    // Экзамен: незавершённый экзамен хранится в браузере, отдельно для каждого пользователя.
+    // Правильных ответов в нём нет: браузер их не получает до завершения экзамена.
+
+    function savedExamKey() {
+        return user ? 'pg16-exam:' + user.email : null;
+    }
+
+    function saveExam() {
+        const key = savedExamKey();
+        if (!key || !exam || exam.finishing) return;
+        try {
+            localStorage.setItem(key, JSON.stringify({
+                questions: exam.questions,
+                answers: exam.answers,
+                index: exam.index,
+                startedAt: exam.startedAt,
+                deadline: exam.deadline,
+            }));
+        } catch (err) {
+            // хранилище недоступно или переполнено — экзамен просто не переживёт закрытие вкладки
+        }
+    }
+
+    function readSavedExam() {
+        const key = savedExamKey();
+        if (!key) return null;
+        try {
+            const data = JSON.parse(localStorage.getItem(key) || 'null');
+            const valid = data && Array.isArray(data.questions) && data.questions.length > 0
+                && Array.isArray(data.answers) && data.answers.length === data.questions.length
+                && Number.isFinite(data.deadline) && Number.isFinite(data.startedAt)
+                && Number.isInteger(data.index) && data.index >= 0 && data.index < data.questions.length;
+            if (!valid && data) localStorage.removeItem(key);
+            return valid ? data : null;
+        } catch (err) {
+            return null;
+        }
+    }
+
+    function clearSavedExam() {
+        const key = savedExamKey();
+        if (!key) return;
+        try {
+            localStorage.removeItem(key);
+        } catch (err) {
+            // нечего удалять
+        }
+    }
+
+    function restoreExam(data) {
+        exam = {
+            questions: data.questions,
+            answers: data.answers,
+            index: data.index,
+            startedAt: data.startedAt,
+            deadline: data.deadline,
+            timerId: null,
+            finishing: false,
+        };
+    }
+
+    // На экране категорий: плашка о незавершённом экзамене; если время вышло — экзамен завершается сам.
+    function checkSavedExam() {
+        const box = $('exam-resume');
+        const data = readSavedExam();
+        box.hidden = !data || exam !== null;
+        if (!data || exam !== null) return;
+        const remaining = Math.ceil((data.deadline - Date.now()) / 1000);
+        if (remaining <= 0) {
+            box.hidden = true;
+            restoreExam(data);
+            finishExam(true);
+            return;
+        }
+        $('exam-resume-text').textContent = 'Есть незавершённый экзамен: вопрос ' + (data.index + 1)
+            + ' из ' + data.questions.length + ', осталось ' + formatTime(remaining);
+    }
+
+    function resumeExam() {
+        const data = readSavedExam();
+        $('exam-resume').hidden = true;
+        if (!data) return;
+        showError('');
+        restoreExam(data);
+        show('exam');
+        renderExamQuestion();
+        tick();
+        if (exam && !exam.finishing) exam.timerId = setInterval(tick, 1000);
+    }
+
+    function finishSavedExam() {
+        const data = readSavedExam();
+        if (!data) return;
+        restoreExam(data);
+        finishExam(false).then(() => {
+            // если завершение отменили в диалоге, экзамен остаётся сохранённым
+            if (exam && !exam.finishing) exam = null;
+        });
+    }
+
     // Экзамен: прохождение
 
     function stopTimer() {
@@ -560,6 +662,7 @@
             timerId: null,
             finishing: false,
         };
+        saveExam();
         show('exam');
         renderExamQuestion();
         tick();
@@ -583,6 +686,7 @@
             input.checked = saved.includes(key);
             input.addEventListener('change', () => {
                 exam.answers[exam.index] = collectAnswer(options);
+                saveExam();
             });
             options.appendChild(label);
         });
@@ -607,9 +711,10 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     answers: exam.questions.map((q, i) => ({ question_id: q.id, answer: exam.answers[i] })),
-                    duration_seconds: Math.max(0, Math.min(86400, Math.round((Date.now() - exam.startedAt) / 1000))),
+                    duration_seconds: Math.max(0, Math.min(86400, Math.round((Math.min(Date.now(), exam.deadline) - exam.startedAt) / 1000))),
                 }),
             });
+            clearSavedExam();
             renderResult(result);
         } catch (err) {
             exam.finishing = false;
@@ -843,16 +948,20 @@
     $('exam-prev').addEventListener('click', () => {
         if (exam.index > 0) {
             exam.index -= 1;
+            saveExam();
             renderExamQuestion();
         }
     });
     $('exam-next').addEventListener('click', () => {
         if (exam.index < exam.questions.length - 1) {
             exam.index += 1;
+            saveExam();
             renderExamQuestion();
         }
     });
     $('exam-finish').addEventListener('click', () => finishExam(false));
+    $('exam-resume-continue').addEventListener('click', resumeExam);
+    $('exam-resume-finish').addEventListener('click', finishSavedExam);
     $('result-new').addEventListener('click', openExamSetup);
     $('result-back').addEventListener('click', loadCategories);
 

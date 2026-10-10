@@ -580,6 +580,18 @@ pre code {
     margin: 0 0 16px;
 }
 
+.resume {
+    margin: 0 0 24px;
+}
+
+.resume p {
+    margin: 0;
+}
+
+.resume .actions {
+    margin-top: 14px;
+}
+
 /* Статистика */
 
 .back {
