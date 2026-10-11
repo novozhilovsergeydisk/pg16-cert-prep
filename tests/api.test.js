@@ -728,3 +728,26 @@ test('Защитные заголовки есть, X-Powered-By не отдаё
         await response.arrayBuffer();
     }
 });
+
+test('Просмотр ссылки показывает владельца и не расходует её', async () => {
+    const { email, mail } = await requestCode();
+    const token = tokenFromMail(mail);
+    const peek = await post('/api/auth/peek', { token }, null);
+    assert.equal(peek.status, 200);
+    assert.deepEqual(peek.body, { email });
+    assert.equal((await post('/api/auth/peek', { token }, null)).status, 200, 'повторный просмотр тоже работает');
+    assert.equal((await post('/api/auth/verify', { token }, null)).status, 200, 'после просмотра ссылка по-прежнему входит');
+    assert.equal((await post('/api/auth/peek', { token }, null)).status, 400, 'использованная ссылка не показывается');
+    for (const bad of [undefined, '', 'abc', 'x'.repeat(43)]) {
+        assert.equal((await post('/api/auth/peek', { token: bad }, null)).status, 400);
+    }
+});
+
+test('Выход удаляет сеанс на сервере', async () => {
+    const user = await createUser();
+    assert.equal((await get('/api/me', user.cookie)).status, 200);
+    const out = await post('/api/auth/logout', {}, user.cookie);
+    assert.equal(out.status, 200);
+    assert.match(out.headers.get('set-cookie') || '', /sid=;/, 'cookie сеанса очищается');
+    assert.equal((await get('/api/me', user.cookie)).status, 401);
+});

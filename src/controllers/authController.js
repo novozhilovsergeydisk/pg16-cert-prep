@@ -114,6 +114,27 @@ async function openSession(client, res, email) {
     res.json({ email: user.rows[0].email, role: user.rows[0].role });
 }
 
+// Показывает, в какой аккаунт ведёт ссылка, не расходуя её: страница подтверждения пишет «Вход как …»,
+// чтобы по подставленной чужой ссылке нельзя было незаметно войти в аккаунт злоумышленника.
+async function peekLink(req, res) {
+    const token = (req.body || {}).token;
+    if (!isToken(token)) {
+        return res.status(400).json({ error: BAD_LINK });
+    }
+    try {
+        const found = await pool.query(
+            'SELECT email FROM login_tokens WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()',
+            [hashToken(token)]
+        );
+        if (found.rowCount === 0) {
+            return res.status(400).json({ error: BAD_LINK });
+        }
+        res.json({ email: found.rows[0].email });
+    } catch (err) {
+        res.status(500).json({ error: 'Ошибка запроса к БД' });
+    }
+}
+
 async function verifyLink(req, res) {
     const token = (req.body || {}).token;
     if (!isToken(token)) {
@@ -201,4 +222,4 @@ function getMe(req, res) {
     res.json({ email: req.user.email, role: req.user.role });
 }
 
-module.exports = { requestLink, verifyLink, verifyCode, logout, getMe, normalizeEmail };
+module.exports = { requestLink, peekLink, verifyLink, verifyCode, logout, getMe, normalizeEmail };

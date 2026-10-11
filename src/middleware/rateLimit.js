@@ -33,6 +33,8 @@ module.exports = {
     linkRequestLimit: rateLimit({ limit: 20, windowMs: HOUR_MS, key: byIp }),
     // Проверка кода из письма: с одного IP, против перебора и выжигания попыток.
     codeCheckLimit: rateLimit({ limit: 30, windowMs: HOUR_MS, key: byIp }),
+    // Просмотр владельца ссылки на экране подтверждения: с одного IP.
+    linkPeekLimit: rateLimit({ limit: 30, windowMs: HOUR_MS, key: byIp }),
     // Ответы и проверка экзаменов: на пользователя, против раздувания журнала.
     answerLimit: rateLimit({ limit: 1000, windowMs: HOUR_MS, key: byUser }),
     examCheckLimit: rateLimit({ limit: 20, windowMs: HOUR_MS, key: byUser }),

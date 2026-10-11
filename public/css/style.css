@@ -576,7 +576,8 @@ pre code {
 }
 
 #login-sent-view p,
-#privacy-view p {
+#privacy-view p,
+.confirm-text {
     margin: 0 0 16px;
 }
 

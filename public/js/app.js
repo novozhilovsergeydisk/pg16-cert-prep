@@ -129,14 +129,17 @@
         }
     }
 
+    // Экран входа показывается только после того, как сервер подтвердил выход:
+    // иначе на общем компьютере сеанс остался бы рабочим, а человек думал бы, что вышел.
     async function logout() {
         showError('');
-        clearSavedExam();
         try {
             await postJson('/api/auth/logout', {});
         } catch (err) {
-            // сеанс на сервере мог уже истечь — экран входа показывается в любом случае
+            if (err.message) showError('Не удалось выйти, попробуйте ещё раз');
+            return;
         }
+        clearSavedExam();
         showLogin();
     }
 
@@ -163,8 +166,33 @@
         stopTimer();
         exam = null;
         showError('');
+        $('login-confirm-text').textContent = '';
+        $('login-confirm-warning').hidden = true;
+        $('login-confirm').disabled = true;
         show('login-confirm');
+        describeLoginLink();
         return true;
+    }
+
+    // На экране подтверждения: в какой аккаунт ведёт ссылка и не открыт ли сейчас другой.
+    async function describeLoginLink() {
+        try {
+            const target = await postJson('/api/auth/peek', { token: loginToken });
+            $('login-confirm-text').textContent = 'Вход как ' + target.email;
+            const current = await fetch('/api/me').then((r) => (r.ok ? r.json() : null)).catch(() => null);
+            if (current && current.email !== target.email) {
+                $('login-confirm-warning').textContent = 'Сейчас вы вошли как ' + current.email + '. Войти в другой аккаунт?';
+                $('login-confirm-warning').hidden = false;
+            }
+            $('login-confirm').disabled = false;
+        } catch (err) {
+            loginToken = null;
+            const message = err.message || 'Ссылка недействительна или устарела';
+            const current = await fetch('/api/me').then((r) => (r.ok ? r.json() : null)).catch(() => null);
+            if (current) startApp(current);
+            else showLogin();
+            showError(message);
+        }
     }
 
     async function init() {
