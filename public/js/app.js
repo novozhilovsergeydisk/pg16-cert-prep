@@ -67,6 +67,11 @@
         user = null;
         stopTimer();
         exam = null;
+        // Данные незавершённого входа не должны пережить выход или истечение сеанса.
+        loginToken = null;
+        loginEmail = '';
+        loginRequest = '';
+        $('login-code').value = '';
         $('user-bar').hidden = true;
         $('login-submit').disabled = false;
         show('login');
@@ -141,7 +146,9 @@
             return;
         }
         clearSavedExam();
-        showLogin();
+        // Перезагрузка стирает из памяти и страницы всё, что было загружено в сеансе:
+        // токен открытой ссылки, личные и административные данные, ответы незавершённых запросов.
+        window.location.replace(window.location.pathname);
     }
 
     function openPrivacy() {
