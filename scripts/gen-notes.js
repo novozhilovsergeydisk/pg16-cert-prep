@@ -59,16 +59,27 @@ async function main() {
     const topicList = data.topics.map((t) => `'${t}.'`).join(', ');
     let sql = `-- ${data.header}\n`;
     sql += '-- Вопросы ищутся по полному тексту; заполняются только пустые option_notes, повторный запуск безопасен.\n\nBEGIN;\n\n';
-    sql += 'UPDATE questions q SET option_notes = n.notes::jsonb\nFROM (VALUES\n';
-    sql += out.map((x) => `    (${lit(x.question_text)}, ${lit(JSON.stringify(x.notes))})`).join(',\n');
-    sql += '\n) AS n(question_text, notes)\nWHERE q.question_text = n.question_text AND q.option_notes IS NULL;\n\n';
-    // Уточнённые формулировки вопросов: меняются после заполнения пояснений (поиск выше идёт по старому тексту).
-    for (const fix of data.textFixes || []) {
-        const row = out.find((x) => firstLine(x.question_text) === fix.line);
-        if (!row) throw new Error('уточнение текста для неизвестного вопроса: ' + fix.line);
-        sql += `UPDATE questions SET question_text = ${lit(fix.text)} WHERE question_text = ${lit(row.question_text)};\n`;
+    if (out.length) {
+        sql += 'UPDATE questions q SET option_notes = n.notes::jsonb\nFROM (VALUES\n';
+        sql += out.map((x) => `    (${lit(x.question_text)}, ${lit(JSON.stringify(x.notes))})`).join(',\n');
+        sql += '\n) AS n(question_text, notes)\nWHERE q.question_text = n.question_text AND q.option_notes IS NULL;\n\n';
     }
-    if ((data.textFixes || []).length) sql += '\n';
+    // Исправления уже записанных пояснений: меняются только названные буквы, остальные остаются. Повторный запуск безопасен.
+    for (const fix of data.fixes || []) {
+        const found = await pool.query(
+            `SELECT q.question_text, q.options FROM questions q
+             WHERE split_part(q.question_text, E'\n', 1) = $1 AND left((SELECT name FROM categories WHERE id = q.category_id), 2) = ANY($2)`,
+            [fix.line, data.topics]
+        );
+        if (found.rowCount !== 1) throw new Error('для исправления нужен ровно один вопрос, найдено ' + found.rowCount + ': ' + fix.line);
+        const row = found.rows[0];
+        for (const [l, text] of Object.entries(fix.letters)) {
+            if (!row.options[l]) throw new Error(`нет варианта ${l}: ${fix.line}`);
+            if (typeof text !== 'string' || text.trim() === '' || /`/.test(text)) throw new Error(`пояснение ${l} пусто или с обратной кавычкой: ${fix.line}`);
+        }
+        sql += `UPDATE questions SET option_notes = option_notes || ${lit(JSON.stringify(fix.letters))}::jsonb WHERE question_text = ${lit(row.question_text)} AND option_notes IS NOT NULL;\n`;
+    }
+    if ((data.fixes || []).length) sql += '\n';
     sql += `DO $check$\nDECLARE n integer;\nBEGIN\n    SELECT count(*) INTO n FROM questions WHERE option_notes IS NULL AND category_id IN (SELECT id FROM categories WHERE left(name, 3) IN (${topicList}));\n`;
     sql += `    IF n > 0 THEN\n        RAISE EXCEPTION 'В темах ${data.topics[0]}–${data.topics[data.topics.length - 1]} остались вопросы без пояснений к вариантам: %', n;\n    END IF;\nEND\n$check$;\n\nCOMMIT;\n`;
     fs.writeFileSync(path.join(__dirname, '..', 'migrations', data.migration + '.sql'), sql);
