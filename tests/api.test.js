@@ -446,8 +446,18 @@ test('Пояснения к вариантам отдаются только п�
         assert.deepEqual(answer.body.option_notes, notes);
         const exam = await post('/api/exam/check', { answers: [{ question_id: id, answer: 'C' }] });
         assert.deepEqual(exam.body.results[0].option_notes, notes);
-        const plain = await post('/api/answers', { question_id: 1, answer: 'C' });
-        assert.equal(plain.body.option_notes, null);
+        // Вопрос без пояснений (временный): пояснений в ответе нет.
+        const bare = await pool.query(
+            `INSERT INTO questions (category_id, question_text, options, correct_answer, explanation)
+             VALUES (1, 'Тестовый вопрос без пояснений', '{"A":"a","B":"b","C":"c","D":"d"}'::jsonb, 'A', 'тест')
+             RETURNING id`
+        );
+        try {
+            const plain = await post('/api/answers', { question_id: bare.rows[0].id, answer: 'C' });
+            assert.equal(plain.body.option_notes, null);
+        } finally {
+            await pool.query('DELETE FROM questions WHERE id = $1', [bare.rows[0].id]);
+        }
     } finally {
         await pool.query('DELETE FROM questions WHERE id = $1', [id]);
     }
