@@ -9,6 +9,23 @@ const { checkOrigin } = require('./src/middleware/auth');
 
 // Сервер работает за nginx на той же машине: настоящий IP клиента берётся из X-Forwarded-For.
 app.set('trust proxy', 'loopback');
+app.disable('x-powered-by');
+
+// Защитные заголовки. Страница не использует встроенных скриптов и стилей, поэтому CSP строгая.
+// HSTS только в продакшене и без includeSubDomains: на соседних поддоменах работают другие сайты.
+app.use((req, res, next) => {
+    res.set({
+        'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
+            + "connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+        'X-Content-Type-Options': 'nosniff',
+        'X-Frame-Options': 'DENY',
+        'Referrer-Policy': 'no-referrer',
+    });
+    if (process.env.NODE_ENV === 'production') {
+        res.set('Strict-Transport-Security', 'max-age=31536000');
+    }
+    next();
+});
 
 app.use(express.static('public'));
 app.use(express.json());
@@ -32,8 +49,8 @@ app.use('/api', require('./src/routes/materials'));
 app.use('/api', require('./src/routes/quiz'));
 
 if (require.main === module) {
-    if (process.env.NODE_ENV === 'production' && !process.env.APP_URL) {
-        console.error('Не задан APP_URL: адрес сайта нужен для ссылок входа');
+    if (process.env.NODE_ENV === 'production' && (!process.env.APP_URL || !process.env.AUTH_SECRET)) {
+        console.error('Не заданы APP_URL или AUTH_SECRET: они нужны для входа по ссылке и коду');
         process.exit(1);
     }
     app.listen(port, host, () => {

@@ -223,8 +223,10 @@ test('POST /api/exam/check отклоняет некорректные данн�
         { answers: [{ question_id: 1, answer: 'A' }, { question_id: 1, answer: 'B' }] },
         { answers: tooMany },
     ];
+    // Отдельный пользователь: перебор в цикле не должен расходовать лимит проверок основного.
+    const user = await createUser();
     for (const payload of cases) {
-        const { status } = await post('/api/exam/check', payload);
+        const { status } = await post('/api/exam/check', payload, user.cookie);
         assert.equal(status, 400, `ожидался 400 для ${JSON.stringify(payload).slice(0, 80)}`);
     }
 });
@@ -362,11 +364,12 @@ test('История экзаменов: проверка экзамена со�
 
 test('История экзаменов: некорректная длительность отклоняется и ничего не сохраняет', async () => {
     const before = Number((await pool.query('SELECT count(*) AS n FROM exam_history')).rows[0].n);
+    const user = await createUser();
     for (const bad of [-1, 1.5, '10', 999999, true]) {
         const { status } = await post('/api/exam/check', {
             answers: [{ question_id: 1, answer: 'C' }],
             duration_seconds: bad,
-        });
+        }, user.cookie);
         assert.equal(status, 400, `ожидался 400 для duration_seconds=${JSON.stringify(bad)}`);
     }
     const after = Number((await pool.query('SELECT count(*) AS n FROM exam_history')).rows[0].n);
@@ -479,7 +482,8 @@ test('Вход по ссылке: письмо, одноразовый токе�
     const sent = outbox.length;
     const request = await post('/api/auth/request', { email: '  ' + email.toUpperCase() + ' ' }, null);
     assert.equal(request.status, 200);
-    assert.deepEqual(request.body, { ok: true });
+    assert.equal(request.body.ok, true);
+    assert.match(request.body.request_id, /^[A-Za-z0-9_-]{43}$/, 'странице возвращается номер запроса');
     assert.equal(outbox.length, sent + 1);
     const mail = outbox[outbox.length - 1];
     assert.equal(mail.to, email);
@@ -602,46 +606,90 @@ function codeFromMail(mail) {
     return match[1];
 }
 
-test('Вход по коду из письма: код одноразовый и гасит ссылку', async () => {
+async function requestCode() {
     const email = 'test-' + crypto.randomBytes(6).toString('hex') + TEST_DOMAIN;
-    assert.equal((await post('/api/auth/request', { email }, null)).status, 200);
+    const request = await post('/api/auth/request', { email }, null);
+    assert.equal(request.status, 200);
     const mail = outbox[outbox.length - 1];
-    const code = codeFromMail(mail);
+    return { email, requestId: request.body.request_id, mail, code: codeFromMail(mail) };
+}
 
-    const ok = await post('/api/auth/verify-code', { email: email.toUpperCase(), code }, null);
+test('Вход по коду из письма: код одноразовый и гасит ссылку', async () => {
+    const { email, requestId, mail, code } = await requestCode();
+
+    const ok = await post('/api/auth/verify-code', { email: email.toUpperCase(), request_id: requestId, code }, null);
     assert.equal(ok.status, 200);
     assert.deepEqual(ok.body, { email, role: 'user' });
     const cookie = sidFrom(ok.headers);
     assert.ok(cookie, 'ставится cookie сеанса');
     assert.equal((await get('/api/me', cookie)).status, 200);
 
-    assert.equal((await post('/api/auth/verify-code', { email, code }, null)).status, 400, 'код одноразовый');
+    assert.equal((await post('/api/auth/verify-code', { email, request_id: requestId, code }, null)).status, 400, 'код одноразовый');
     assert.equal((await post('/api/auth/verify', { token: tokenFromMail(mail) }, null)).status, 400, 'после входа по коду ссылка не работает');
 });
 
-test('Вход по коду: 5 неверных попыток гасят запрос, неверный формат отклоняется', async () => {
-    const email = 'test-' + crypto.randomBytes(6).toString('hex') + TEST_DOMAIN;
-    assert.equal((await post('/api/auth/request', { email }, null)).status, 200);
-    const mail = outbox[outbox.length - 1];
-    const code = codeFromMail(mail);
+test('Вход по коду: 5 неверных попыток гасят код, но не ссылку; неверный формат отклоняется', async () => {
+    const { email, requestId, mail, code } = await requestCode();
     const wrong = code === '000000' ? '000001' : '000000';
     for (let i = 0; i < 5; i += 1) {
-        assert.equal((await post('/api/auth/verify-code', { email, code: wrong }, null)).status, 400);
+        assert.equal((await post('/api/auth/verify-code', { email, request_id: requestId, code: wrong }, null)).status, 400);
     }
-    assert.equal((await post('/api/auth/verify-code', { email, code }, null)).status, 400, 'после 5 ошибок верный код уже не принимается');
-    assert.equal((await post('/api/auth/verify', { token: tokenFromMail(mail) }, null)).status, 400, 'и ссылка тоже');
+    assert.equal((await post('/api/auth/verify-code', { email, request_id: requestId, code }, null)).status, 400, 'после 5 ошибок верный код уже не принимается');
+    assert.equal((await post('/api/auth/verify', { token: tokenFromMail(mail) }, null)).status, 200, 'ссылка из письма продолжает работать');
 
-    for (const payload of [{}, { email }, { email, code: '12345' }, { email, code: 'abcdef' }, { email, code: 123456 }, { email: 'bad', code: '123456' }]) {
+    for (const payload of [{}, { email }, { email, code }, { email, request_id: requestId }, { email, request_id: requestId, code: '12345' },
+        { email, request_id: requestId, code: 'abcdef' }, { email, request_id: requestId, code: 123456 }, { email: 'bad', request_id: requestId, code: '123456' },
+        { email, request_id: 'short', code: '123456' }]) {
         assert.equal((await post('/api/auth/verify-code', payload, null)).status, 400, `ожидался 400 для ${JSON.stringify(payload)}`);
     }
 });
 
+test('Вход по коду: без номера запроса чужие попытки не расходуются', async () => {
+    const { email, requestId, code } = await requestCode();
+    const bogus = crypto.randomBytes(32).toString('base64url');
+    const wrong = code === '000000' ? '000001' : '000000';
+    for (let i = 0; i < 5; i += 1) {
+        assert.equal((await post('/api/auth/verify-code', { email, request_id: bogus, code: wrong }, null)).status, 400);
+    }
+    assert.equal((await post('/api/auth/verify-code', { email, request_id: bogus, code }, null)).status, 400, 'верный код с чужим номером не принимается');
+    const ok = await post('/api/auth/verify-code', { email, request_id: requestId, code }, null);
+    assert.equal(ok.status, 200, 'владелец запроса входит своим кодом');
+});
+
+test('Код хранится как HMAC, а не как простой хеш', async () => {
+    const { email, code } = await requestCode();
+    const plain = crypto.createHash('sha256').update(code).digest();
+    const row = await pool.query('SELECT code_hash, request_hash FROM login_tokens WHERE email = $1', [email]);
+    assert.equal(row.rowCount, 1);
+    assert.equal(row.rows[0].code_hash.equals(plain), false);
+    assert.ok(row.rows[0].request_hash, 'хранится хеш номера запроса');
+});
+
 test('Вход по ссылке гасит код из того же письма', async () => {
-    const email = 'test-' + crypto.randomBytes(6).toString('hex') + TEST_DOMAIN;
-    assert.equal((await post('/api/auth/request', { email }, null)).status, 200);
-    const mail = outbox[outbox.length - 1];
+    const { email, requestId, mail, code } = await requestCode();
     assert.equal((await post('/api/auth/verify', { token: tokenFromMail(mail) }, null)).status, 200);
-    assert.equal((await post('/api/auth/verify-code', { email, code: codeFromMail(mail) }, null)).status, 400);
+    assert.equal((await post('/api/auth/verify-code', { email, request_id: requestId, code }, null)).status, 400);
+});
+
+test('Параллельные запросы письма не обходят лимит на адрес', async () => {
+    const email = 'test-' + crypto.randomBytes(6).toString('hex') + TEST_DOMAIN;
+    const results = await Promise.all(Array.from({ length: 4 }, () => post('/api/auth/request', { email }, null)));
+    const statuses = results.map((r) => r.status).sort();
+    assert.deepEqual(statuses, [200, 429, 429, 429]);
+    const rows = await pool.query('SELECT count(*)::int AS n FROM login_tokens WHERE email = $1', [email]);
+    assert.equal(rows.rows[0].n, 1);
+});
+
+test('Проверка экзамена ограничена 20 разами в час на пользователя', async () => {
+    const user = await createUser();
+    for (let i = 0; i < 20; i += 1) {
+        const r = await post('/api/exam/check', { answers: [{ question_id: 1, answer: 'C' }] }, user.cookie);
+        assert.equal(r.status, 200, `проверка ${i + 1} проходит`);
+    }
+    const blocked = await post('/api/exam/check', { answers: [{ question_id: 1, answer: 'C' }] }, user.cookie);
+    assert.equal(blocked.status, 429);
+    const other = await post('/api/exam/check', { answers: [{ question_id: 1, answer: 'C' }] }, (await createUser()).cookie);
+    assert.equal(other.status, 200, 'лимит у каждого пользователя свой');
 });
 
 test('Экзамен без выбора тем не берёт вопросы из тем вне экзамена', async () => {
@@ -665,5 +713,18 @@ test('Материал для собеседования доступен тол
     assert.match(text, /^# Собеседование DBA/);
     for (let n = 1; n <= 8; n += 1) {
         assert.ok(text.includes(`\n## ${n}. `), `в материале есть раздел ${n}`);
+    }
+});
+
+test('Защитные заголовки есть, X-Powered-By не отдаётся', async () => {
+    for (const path of ['/', '/api/me']) {
+        const response = await fetch(base + path);
+        assert.equal(response.headers.get('x-powered-by'), null, `X-Powered-By не отдаётся для ${path}`);
+        assert.match(response.headers.get('content-security-policy') || '', /default-src 'self'/);
+        assert.match(response.headers.get('content-security-policy') || '', /frame-ancestors 'none'/);
+        assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+        assert.equal(response.headers.get('x-frame-options'), 'DENY');
+        assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+        await response.arrayBuffer();
     }
 });

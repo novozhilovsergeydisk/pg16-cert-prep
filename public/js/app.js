@@ -19,6 +19,7 @@
     let user = null;
     let loginToken = null;
     let loginEmail = '';
+    let loginRequest = '';
     let privacyReturn = 'login';
 
     function show(name) {
@@ -80,8 +81,9 @@
         }
         $('login-submit').disabled = true;
         try {
-            await postJson('/api/auth/request', { email });
+            const sent = await postJson('/api/auth/request', { email });
             loginEmail = email;
+            loginRequest = sent.request_id;
             $('sent-email').textContent = email;
             $('login-code').value = '';
             show('login-sent');
@@ -119,7 +121,7 @@
         }
         $('code-submit').disabled = true;
         try {
-            startApp(await postJson('/api/auth/verify-code', { email: loginEmail, code }));
+            startApp(await postJson('/api/auth/verify-code', { email: loginEmail, request_id: loginRequest, code }));
         } catch (err) {
             showError(err.message);
         } finally {

@@ -2,36 +2,25 @@ const crypto = require('crypto');
 const pool = require('../config/db');
 const { sendMail } = require('../services/mailer');
 const { COOKIE_NAME, newToken, hashToken, isToken, appUrl, readCookie } = require('../middleware/auth');
+const { TOO_OFTEN } = require('../middleware/rateLimit');
 
 const TOKEN_TTL_MINUTES = 15;
 const SESSION_DAYS = 30;
 const EMAIL_PER_MINUTE = 1;
 const EMAIL_PER_HOUR = 5;
-const IP_PER_HOUR = 20;
 const CODE_ATTEMPTS = 5;
 const HOUR_MS = 3600 * 1000;
-const TOO_OFTEN = 'Слишком много запросов, попробуйте позже';
 const BAD_LINK = 'Ссылка недействительна или устарела';
 const BAD_CODE = 'Неверный или устаревший код';
 
-// Запросы ссылок с одного IP за последний час (в памяти процесса).
-const ipLog = new Map();
+// Секрет для HMAC кода из письма. В продакшене задаётся в .env (AUTH_SECRET); без него сервер не запускается.
+// При разработке и в тестах, если секрет не задан, берётся случайный на время работы процесса.
+const devSecret = crypto.randomBytes(32);
 
-function ipAllowed(ip) {
-    const now = Date.now();
-    if (ipLog.size > 10000) {
-        for (const [key, times] of ipLog) {
-            if (times[times.length - 1] < now - HOUR_MS) ipLog.delete(key);
-        }
-    }
-    const times = (ipLog.get(ip) || []).filter((t) => t > now - HOUR_MS);
-    if (times.length >= IP_PER_HOUR) {
-        ipLog.set(ip, times);
-        return false;
-    }
-    times.push(now);
-    ipLog.set(ip, times);
-    return true;
+function codeHash(email, requestId, code) {
+    const secret = process.env.AUTH_SECRET;
+    if (!secret && process.env.NODE_ENV === 'production') throw new Error('AUTH_SECRET не задан');
+    return crypto.createHmac('sha256', secret || devSecret).update(`${email}\n${requestId}\n${code}`).digest();
 }
 
 function normalizeEmail(value) {
@@ -55,11 +44,16 @@ async function requestLink(req, res) {
     if (email === null) {
         return res.status(400).json({ error: 'Некорректный email' });
     }
-    if (!ipAllowed(req.ip)) {
-        return res.status(429).json({ error: TOO_OFTEN });
-    }
+    const token = newToken();
+    const requestId = newToken();
+    const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+    const client = await pool.connect();
     try {
-        const recent = await pool.query(
+        // Проверка лимита и создание запроса — под блокировкой по адресу, чтобы параллельные запросы
+        // не обошли лимит писем. Блокировка снимается в конце транзакции.
+        await client.query('BEGIN');
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [email]);
+        const recent = await client.query(
             `SELECT count(*) FILTER (WHERE created_at > now() - interval '1 minute')::int AS minute, count(*)::int AS hour
              FROM login_tokens
              WHERE email = $1 AND created_at > now() - interval '1 hour'`,
@@ -67,15 +61,23 @@ async function requestLink(req, res) {
         );
         const { minute, hour } = recent.rows[0];
         if (minute >= EMAIL_PER_MINUTE || hour >= EMAIL_PER_HOUR) {
+            await client.query('ROLLBACK');
             return res.status(429).json({ error: TOO_OFTEN });
         }
-        await pool.query("DELETE FROM login_tokens WHERE expires_at < now() - interval '1 day'");
-        const token = newToken();
-        const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
-        await pool.query(
-            'INSERT INTO login_tokens (token_hash, email, expires_at, code_hash) VALUES ($1, $2, now() + make_interval(mins => $3), $4)',
-            [hashToken(token), email, TOKEN_TTL_MINUTES, hashToken(code)]
+        await client.query("DELETE FROM login_tokens WHERE expires_at < now() - interval '1 day'");
+        await client.query(
+            `INSERT INTO login_tokens (token_hash, email, expires_at, code_hash, request_hash)
+             VALUES ($1, $2, now() + make_interval(mins => $3), $4, $5)`,
+            [hashToken(token), email, TOKEN_TTL_MINUTES, codeHash(email, requestId, code), hashToken(requestId)]
         );
+        await client.query('COMMIT');
+    } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        return res.status(500).json({ error: 'Ошибка запроса к БД' });
+    } finally {
+        client.release();
+    }
+    try {
         // Токен в части после #: браузер не отправляет её на сервер, она не попадает в журналы nginx.
         const site = appUrl();
         await sendMail({
@@ -84,7 +86,8 @@ async function requestLink(req, res) {
             text: `Ссылка для входа действует ${TOKEN_TTL_MINUTES} минут: ${site}/#login=${token}\n\n`
                 + `Или введите код на странице входа: ${code}`,
         });
-        res.json({ ok: true });
+        // Номер запроса знает только эта страница: без него код проверить нельзя.
+        res.json({ ok: true, request_id: requestId });
     } catch (err) {
         // Текст ошибки почтового сервера может содержать адреса и логины — выводится только код.
         console.error('Не удалось отправить ссылку для входа:', err && err.code ? err.code : 'ошибка');
@@ -121,9 +124,9 @@ async function verifyLink(req, res) {
         await client.query('BEGIN');
         const used = await client.query(
             `UPDATE login_tokens SET used_at = now()
-             WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now() AND attempts < $2
+             WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()
              RETURNING email`,
-            [hashToken(token), CODE_ATTEMPTS]
+            [hashToken(token)]
         );
         if (used.rowCount === 0) {
             await client.query('ROLLBACK');
@@ -138,13 +141,15 @@ async function verifyLink(req, res) {
     }
 }
 
-// Вход по коду из письма: проверяется только последний запрос для этого адреса.
-// Неверный код увеличивает счётчик попыток; после CODE_ATTEMPTS запрос перестаёт действовать.
+// Вход по коду из письма: код проверяется у запроса с переданным номером.
+// Неверный код увеличивает счётчик попыток; после CODE_ATTEMPTS код перестаёт действовать,
+// а ссылка из того же письма продолжает работать.
 async function verifyCode(req, res) {
     const body = req.body || {};
     const email = normalizeEmail(body.email);
     const code = body.code;
-    if (email === null || typeof code !== 'string' || !/^\d{6}$/.test(code)) {
+    const requestId = body.request_id;
+    if (email === null || !isToken(requestId) || typeof code !== 'string' || !/^\d{6}$/.test(code)) {
         return res.status(400).json({ error: BAD_CODE });
     }
     const client = await pool.connect();
@@ -153,18 +158,18 @@ async function verifyCode(req, res) {
         const last = await client.query(
             `SELECT token_hash, code_hash
              FROM login_tokens
-             WHERE email = $1 AND used_at IS NULL AND expires_at > now() AND attempts < $2 AND code_hash IS NOT NULL
-             ORDER BY created_at DESC
-             LIMIT 1
+             WHERE email = $1 AND request_hash = $2 AND used_at IS NULL AND expires_at > now()
+               AND attempts < $3 AND code_hash IS NOT NULL
              FOR UPDATE`,
-            [email, CODE_ATTEMPTS]
+            [email, hashToken(requestId), CODE_ATTEMPTS]
         );
         if (last.rowCount === 0) {
             await client.query('ROLLBACK');
             return res.status(400).json({ error: BAD_CODE });
         }
         const row = last.rows[0];
-        if (!crypto.timingSafeEqual(row.code_hash, hashToken(code))) {
+        const expected = codeHash(email, requestId, code);
+        if (row.code_hash.length !== expected.length || !crypto.timingSafeEqual(row.code_hash, expected)) {
             await client.query('UPDATE login_tokens SET attempts = attempts + 1 WHERE token_hash = $1', [row.token_hash]);
             await client.query('COMMIT');
             return res.status(400).json({ error: BAD_CODE });

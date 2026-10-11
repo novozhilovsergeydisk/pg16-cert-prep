@@ -9,6 +9,7 @@ const {
     getExamHistory,
 } = require('../controllers/quizController');
 const { requireAuth } = require('../middleware/auth');
+const { answerLimit, examCheckLimit } = require('../middleware/rateLimit');
 
 const router = express.Router();
 
@@ -16,9 +17,9 @@ const router = express.Router();
 router.use(requireAuth);
 router.get('/categories', getCategories);
 router.get('/questions', getQuestions);
-router.post('/answers', postAnswer);
+router.post('/answers', answerLimit, postAnswer);
 router.get('/exam', getExam);
-router.post('/exam/check', postExamCheck);
+router.post('/exam/check', examCheckLimit, postExamCheck);
 router.get('/mistakes', getMistakes);
 router.get('/exam/history', getExamHistory);
 
