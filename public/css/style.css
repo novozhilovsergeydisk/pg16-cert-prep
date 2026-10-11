@@ -592,6 +592,47 @@ pre code {
     margin-top: 14px;
 }
 
+.card-link {
+    display: inline-block;
+    margin: 6px 0 4px 4px;
+    font-size: 0.95rem;
+}
+
+/* Материал для изучения */
+
+.material h2 {
+    margin: 0 0 12px;
+    font-size: 1.5rem;
+    color: var(--fg);
+}
+
+.material h3 {
+    margin: 36px 0 12px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    font-size: 1.3rem;
+    color: var(--fg);
+}
+
+.material h4 {
+    margin: 22px 0 8px;
+    font-size: 1.05rem;
+    color: var(--accent);
+}
+
+.material p,
+.material ul {
+    margin: 0 0 12px;
+}
+
+.material ul {
+    padding-left: 22px;
+}
+
+.material li {
+    margin-bottom: 6px;
+}
+
 /* Статистика */
 
 .back {

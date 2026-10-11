@@ -28,6 +28,7 @@ if (process.env.NODE_ENV !== 'production') {
 
 app.use('/api', require('./src/routes/auth'));
 app.use('/api', require('./src/routes/stats'));
+app.use('/api', require('./src/routes/materials'));
 app.use('/api', require('./src/routes/quiz'));
 
 if (require.main === module) {

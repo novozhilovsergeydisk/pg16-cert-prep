@@ -2,7 +2,7 @@
     const $ = (id) => document.getElementById(id);
 
     const VIEWS = ['login', 'login-sent', 'login-confirm', 'privacy', 'categories', 'question', 'finish',
-        'exam-setup', 'exam', 'exam-result', 'history', 'stats', 'admin', 'admin-user'];
+        'exam-setup', 'exam', 'exam-result', 'history', 'stats', 'admin', 'admin-user', 'material'];
     const EXAM_COUNTS = [20, 30, 50];
     const EXAM_DEFAULT_COUNT = 30;
     const SECONDS_PER_QUESTION = 90;
@@ -363,6 +363,14 @@
                 button.appendChild(count);
                 button.addEventListener('click', () => startCategory(category));
                 item.appendChild(button);
+                if (category.name.startsWith('17.')) {
+                    const link = document.createElement('button');
+                    link.type = 'button';
+                    link.className = 'link card-link';
+                    link.textContent = 'Материал для изучения';
+                    link.addEventListener('click', openMaterial);
+                    item.appendChild(link);
+                }
                 list.appendChild(item);
             });
         } catch (err) {
@@ -763,6 +771,91 @@
         show('history');
     }
 
+    // Материал для изучения: Markdown с заголовками, абзацами, списками и блоками кода. Без innerHTML.
+
+    function renderMaterial(container, text) {
+        container.textContent = '';
+        const lines = text.split('\n');
+        let paragraph = [];
+        let list = null;
+        let code = null;
+        const flushParagraph = () => {
+            if (paragraph.length === 0) return;
+            const p = document.createElement('p');
+            appendInline(p, paragraph.join(' '));
+            container.appendChild(p);
+            paragraph = [];
+        };
+        lines.forEach((line) => {
+            if (code !== null) {
+                if (line.startsWith('```')) {
+                    const pre = document.createElement('pre');
+                    const codeEl = document.createElement('code');
+                    codeEl.textContent = code.join('\n');
+                    pre.appendChild(codeEl);
+                    container.appendChild(pre);
+                    code = null;
+                } else {
+                    code.push(line);
+                }
+                return;
+            }
+            if (line.startsWith('```')) {
+                flushParagraph();
+                list = null;
+                code = [];
+                return;
+            }
+            const heading = /^(#{1,3}) (.+)$/.exec(line);
+            if (heading) {
+                flushParagraph();
+                list = null;
+                const h = document.createElement('h' + (heading[1].length + 1));
+                h.textContent = heading[2];
+                container.appendChild(h);
+                return;
+            }
+            if (line.startsWith('- ')) {
+                flushParagraph();
+                if (!list) {
+                    list = document.createElement('ul');
+                    container.appendChild(list);
+                }
+                const li = document.createElement('li');
+                appendInline(li, line.slice(2));
+                list.appendChild(li);
+                return;
+            }
+            if (line.trim() === '') {
+                flushParagraph();
+                list = null;
+                return;
+            }
+            paragraph.push(line.trim());
+        });
+        flushParagraph();
+    }
+
+    async function openMaterial() {
+        showError('');
+        let text;
+        try {
+            const response = await fetch('/api/materials/interview');
+            if (response.status === 401) {
+                showLogin();
+                return;
+            }
+            if (!response.ok) throw new Error('Материал недоступен');
+            text = await response.text();
+        } catch (err) {
+            showError(err.message);
+            return;
+        }
+        renderMaterial($('material-body'), text);
+        show('material');
+        window.scrollTo(0, 0);
+    }
+
     // Статистика
 
     function cell(row, text, numeric) {
@@ -978,6 +1071,7 @@
         if (privacyReturn === 'categories') loadCategories();
         else show('login');
     });
+    $('material-back').addEventListener('click', loadCategories);
     $('open-stats').addEventListener('click', openStats);
     $('stats-back').addEventListener('click', loadCategories);
     $('open-admin').addEventListener('click', openAdmin);

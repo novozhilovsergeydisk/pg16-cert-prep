@@ -654,3 +654,16 @@ test('Экзамен без выбора тем не берёт вопросы �
     assert.equal(chosen.status, 200, 'при явном выборе тема вне экзамена доступна');
     assert.ok(chosen.body.every((q) => q.category_id === outside[0]));
 });
+
+test('Материал для собеседования доступен только после входа', async () => {
+    const anonymous = await fetch(base + '/api/materials/interview');
+    assert.equal(anonymous.status, 401);
+    const response = await fetch(base + '/api/materials/interview', { headers: { Cookie: cookieA } });
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type'), /text\/markdown/);
+    const text = await response.text();
+    assert.match(text, /^# Собеседование DBA/);
+    for (let n = 1; n <= 8; n += 1) {
+        assert.ok(text.includes(`\n## ${n}. `), `в материале есть раздел ${n}`);
+    }
+});
