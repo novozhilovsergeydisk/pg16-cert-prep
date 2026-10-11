@@ -10,6 +10,7 @@
     const FINISH_PORTION = 'Порция вопросов пройдена. Откройте тему снова, чтобы получить следующую: сначала новые вопросы и те, где были ошибки.';
     const FINISH_MISTAKES = 'Вопросы из списка ошибок закончились.';
     let finishText = FINISH_PORTION;
+    let progressLabel = 'Порция: вопрос';
     const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
     let categories = [];
@@ -364,6 +365,7 @@
         }
         $('category-name').textContent = 'Работа над ошибками';
         finishText = FINISH_MISTAKES;
+        progressLabel = 'Вопрос';
         index = 0;
         showQuestion();
     }
@@ -378,6 +380,13 @@
         refreshMistakes();
         try {
             categories = await api('/api/categories');
+            // Личный прогресс на карточках; если статистика недоступна, остаётся число вопросов в теме.
+            const answered = new Map();
+            try {
+                (await api('/api/stats')).topics.forEach((topic) => answered.set(topic.id, topic.answered));
+            } catch (err) {
+                // карточки покажут только число вопросов
+            }
             categories.forEach((category) => {
                 const item = document.createElement('li');
                 const button = document.createElement('button');
@@ -388,7 +397,9 @@
                 name.textContent = category.name;
                 const count = document.createElement('span');
                 count.className = 'card-count';
-                count.textContent = questionsLabel(category.question_count);
+                count.textContent = answered.has(category.id)
+                    ? 'решено ' + answered.get(category.id) + ' из ' + category.question_count
+                    : questionsLabel(category.question_count);
                 button.appendChild(name);
                 button.appendChild(count);
                 button.addEventListener('click', () => startCategory(category));
@@ -419,6 +430,7 @@
         }
         $('category-name').textContent = category.name;
         finishText = FINISH_PORTION;
+        progressLabel = 'Порция: вопрос';
         index = 0;
         showQuestion();
     }
@@ -431,7 +443,7 @@
         }
         const question = questions[index];
         show('question');
-        $('progress').textContent = 'Вопрос ' + (index + 1) + ' из ' + questions.length;
+        $('progress').textContent = progressLabel + ' ' + (index + 1) + ' из ' + questions.length;
         renderRich($('question-text'), question.question_text);
         $('question-hint').textContent = hintText(question);
         $('question-hint').hidden = !isMulti(question);
