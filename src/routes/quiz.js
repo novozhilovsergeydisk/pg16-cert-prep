@@ -10,6 +10,7 @@ const {
 } = require('../controllers/quizController');
 const { requireAuth } = require('../middleware/auth');
 const { answerLimit, examCheckLimit } = require('../middleware/rateLimit');
+const { createTrainingBatch, getTrainingBatches, getTrainingBatch } = require('../controllers/trainingController');
 
 const router = express.Router();
 
@@ -17,6 +18,9 @@ const router = express.Router();
 router.use(requireAuth);
 router.get('/categories', getCategories);
 router.get('/questions', getQuestions);
+router.post('/training/batches', answerLimit, createTrainingBatch);
+router.get('/training/batches', getTrainingBatches);
+router.get('/training/batches/:id', getTrainingBatch);
 router.post('/answers', answerLimit, postAnswer);
 router.get('/exam', getExam);
 router.post('/exam/check', examCheckLimit, postExamCheck);

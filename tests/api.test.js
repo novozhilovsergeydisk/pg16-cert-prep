@@ -15,6 +15,115 @@ let base;
 let userA;
 let cookieA;
 
+test('История тренировок: сохраняет все 16 вопросов и порядок, не раскрывает ответы', async () => {
+    const user = await createUser();
+    const { status, body } = await post('/api/training/batches', { category_id: 1 }, user.cookie);
+    assert.equal(status, 201);
+    assert.equal(body.questions.length, 16);
+    assert.equal(new Set(body.questions.map((q) => q.id)).size, 16);
+    const stored = (await pool.query('SELECT * FROM training_batches WHERE id=$1', [body.id])).rows[0];
+    assert.equal(stored.user_id, user.id);
+    assert.deepEqual(stored.questions.map((q) => q.id), body.questions.map((q) => q.id));
+    for (let i = 0; i < body.questions.length; i++) {
+        const q = body.questions[i];
+        assert.equal(q.question_text, stored.questions[i].question_text);
+        assert.deepEqual(q.order, stored.questions[i].order);
+        assert.deepEqual([...q.order].sort(), Object.keys(q.options).sort());
+        for (const key of ['correct_answer', 'explanation', 'option_notes']) assert.equal(key in q, false);
+    }
+    const history = await get('/api/training/batches/' + body.id, user.cookie);
+    assert.equal(history.status, 200);
+    assert.equal(history.body.questions.length, 16);
+    assert.equal(history.body.questions.every((q) => q.answer === null && !('correct_answer' in q)), true);
+});
+
+test('История тренировок: повтор одного ответа не дублирует статистику, другой ответ отклоняется', async () => {
+    const user = await createUser();
+    const batch = (await post('/api/training/batches', { category_id: 1 }, user.cookie)).body;
+    const q = batch.questions[0];
+    const correct = (await pool.query('SELECT correct_answer FROM questions WHERE id=$1', [q.id])).rows[0].correct_answer;
+    const payload = { training_batch_id: batch.id, question_id: q.id, answer: correct };
+    const results = await Promise.all([post('/api/answers', payload, user.cookie), post('/api/answers', payload, user.cookie)]);
+    assert.equal(results.every((r) => r.status === 200 && r.body.correct), true);
+    const logged = (await pool.query('SELECT * FROM answer_log WHERE training_batch_id=$1', [batch.id])).rows;
+    assert.equal(logged.length, 1);
+    assert.equal(logged[0].selected_answer, correct);
+    const other = Object.keys(q.options).find((k) => k !== correct);
+    assert.equal((await post('/api/answers', { ...payload, answer: other }, user.cookie)).status, 409);
+    const history = (await get('/api/training/batches/' + batch.id, user.cookie)).body;
+    assert.equal(history.questions[0].answer.correct, true);
+    assert.equal(history.questions[0].answer.selected_answer, correct);
+    assert.equal(history.questions[0].position, 1);
+    assert.equal(history.questions[1].answer, null);
+});
+
+test('История тренировок: чужая порция недоступна для чтения и записи', async () => {
+    const owner = await createUser();
+    const stranger = await createUser();
+    const batch = (await post('/api/training/batches', { category_id: 1 }, owner.cookie)).body;
+    assert.equal((await get('/api/training/batches/' + batch.id, stranger.cookie)).status, 404);
+    assert.equal((await post('/api/answers', { training_batch_id: batch.id, question_id: batch.questions[0].id, answer: 'A' }, stranger.cookie)).status, 404);
+    assert.equal((await get('/api/training/batches', stranger.cookie)).body.batches.length, 0);
+    assert.equal((await get('/api/training/batches', null)).status, 401);
+    assert.equal((await post('/api/training/batches', { category_id: 1 }, null)).status, 401);
+});
+
+test('История тренировок: неверные параметры и вопрос вне порции отклоняются', async () => {
+    const user = await createUser();
+    for (const body of [{}, { category_id: 0 }, { category_id: 1, limit: 0 }, { category_id: 1, limit: 201 }, { mode: 'exam' }]) {
+        assert.equal((await post('/api/training/batches', body, user.cookie)).status, 400);
+    }
+    assert.equal((await post('/api/training/batches', { category_id: 2147483647 }, user.cookie)).status, 404);
+    const batch = (await post('/api/training/batches', { category_id: 1, limit: 1 }, user.cookie)).body;
+    const other = (await pool.query('SELECT id FROM questions WHERE id<>$1 LIMIT 1', [batch.questions[0].id])).rows[0].id;
+    assert.equal((await post('/api/answers', { training_batch_id: batch.id, question_id: other, answer: 'A' }, user.cookie)).status, 400);
+    assert.equal((await get('/api/training/batches?before=bad', user.cookie)).status, 400);
+    assert.equal((await get('/api/training/batches/bad', user.cookie)).status, 400);
+});
+
+test('История тренировок: снимок и проверка ответа сохраняются после редактирования вопроса', async () => {
+    const user = await createUser();
+    const category = (await pool.query('INSERT INTO categories(name) VALUES($1) RETURNING id', ['Тест истории ' + user.id])).rows[0].id;
+    try {
+        const q = (await pool.query(`INSERT INTO questions(category_id, question_text, options, correct_answer, explanation)
+            VALUES($1, 'Исходный вопрос', '{"A":"Первый","B":"Второй"}'::jsonb, 'A', 'Исходное пояснение') RETURNING id`, [category])).rows[0].id;
+        const batch = (await post('/api/training/batches', { category_id: category }, user.cookie)).body;
+        await pool.query("UPDATE questions SET question_text='Изменённый вопрос', correct_answer='B' WHERE id=$1", [q]);
+        const history = (await get('/api/training/batches/' + batch.id, user.cookie)).body;
+        assert.equal(history.questions[0].question_text, 'Исходный вопрос');
+        const result = await post('/api/answers', { training_batch_id: batch.id, question_id: q, answer: 'A' }, user.cookie);
+        assert.equal(result.body.correct, true);
+        assert.equal(result.body.explanation, 'Исходное пояснение');
+    } finally {
+        await pool.query('DELETE FROM categories WHERE id=$1', [category]);
+    }
+});
+
+test('История тренировок: работа над ошибками сохраняется отдельно от порций раздела', async () => {
+    const user = await createUser();
+    const empty = await post('/api/training/batches', { mode: 'mistakes' }, user.cookie);
+    assert.equal(empty.body.id, null);
+    await pool.query('INSERT INTO answer_log(user_id, question_id, correct) VALUES($1, 1, false)', [user.id]);
+    const batch = (await post('/api/training/batches', { mode: 'mistakes' }, user.cookie)).body;
+    assert.deepEqual(batch.questions.map((q) => q.id), [1]);
+    const list = (await get('/api/training/batches', user.cookie)).body;
+    assert.equal(list.batches.length, 1);
+    assert.equal(list.batches[0].mode, 'mistakes');
+    assert.equal(list.batches[0].category_id, null);
+});
+
+test('История тренировок: страницы истории не теряют и не повторяют порции', async () => {
+    const user = await createUser();
+    await pool.query(`INSERT INTO training_batches(user_id, category_name, mode, questions)
+        SELECT $1, 'Тест', 'mistakes', '[{"id":1}]'::jsonb FROM generate_series(1, 51)`, [user.id]);
+    const first = (await get('/api/training/batches', user.cookie)).body;
+    assert.equal(first.batches.length, 50);
+    const second = (await get('/api/training/batches?before=' + first.next_before, user.cookie)).body;
+    assert.equal(second.batches.length, 1);
+    assert.equal(second.next_before, null);
+    assert.equal(new Set([...first.batches, ...second.batches].map((b) => b.id)).size, 51);
+});
+
 // Тестовые пользователи создаются напрямую в базе; после тестов они удаляются вместе с ответами и экзаменами.
 async function createUser(role = 'user') {
     const email = 'test-' + crypto.randomBytes(6).toString('hex') + TEST_DOMAIN;

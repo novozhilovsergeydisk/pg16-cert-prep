@@ -1,0 +1,140 @@
+{
+  "checks": [
+    {
+      "name": "categories_layout_320",
+      "viewport": 320,
+      "scrollWidth": 337,
+      "overflowing": [
+        {
+          "tag": "LI",
+          "id": "",
+          "class": "",
+          "right": 337
+        },
+        {
+          "tag": "BUTTON",
+          "id": "",
+          "class": "card",
+          "right": 337
+        },
+        {
+          "tag": "LI",
+          "id": "",
+          "class": "",
+          "right": 337
+        },
+        {
+          "tag": "BUTTON",
+          "id": "",
+          "class": "card",
+          "right": 337
+        },
+        {
+          "tag": "LI",
+          "id": "",
+          "class": "",
+          "right": 337
+        },
+        {
+          "tag": "BUTTON",
+          "id": "",
+          "class": "card",
+          "right": 337
+        },
+        {
+          "tag": "LI",
+          "id": "",
+          "class": "",
+          "right": 337
+        },
+        {
+          "tag": "BUTTON",
+          "id": "",
+          "class": "card",
+          "right": 337
+        },
+        {
+          "tag": "LI",
+          "id": "",
+          "class": "",
+          "right": 337
+        },
+        {
+          "tag": "BUTTON",
+          "id": "",
+          "class": "card",
+          "right": 337
+        }
+      ]
+    },
+    {
+      "name": "categories_layout_360",
+      "viewport": 360,
+      "scrollWidth": 360,
+      "overflowing": []
+    },
+    {
+      "name": "categories_layout_390",
+      "viewport": 390,
+      "scrollWidth": 390,
+      "overflowing": []
+    },
+    {
+      "name": "categories_layout_1280",
+      "viewport": 1280,
+      "scrollWidth": 1280,
+      "overflowing": []
+    },
+    {
+      "name": "training_mistakes_roundtrip",
+      "wrongStatus": "Неверно",
+      "notes": 4,
+      "corrected": "Верно",
+      "mistakesButtonDisabled": true
+    },
+    {
+      "name": "exam_resume_finish",
+      "storedIndex": 1,
+      "hasCorrectAnswer": false,
+      "resumedProgress": "Вопрос 2 из 20",
+      "restoredSelectedOptions": 1,
+      "savedExamCleared": true
+    },
+    {
+      "name": "history_layout_390",
+      "viewport": 390,
+      "scrollWidth": 390,
+      "overflowing": []
+    },
+    {
+      "name": "training_double_click",
+      "requests": 2,
+      "answerLogDelta": 2,
+      "renderedNotes": 8,
+      "options": 4
+    },
+    {
+      "name": "late_answer_after_navigation",
+      "questionChanged": true,
+      "resultVisible": true,
+      "status": "Верно",
+      "submitDisabled": true,
+      "checkedOptions": 0
+    },
+    {
+      "name": "exam_failure_timer",
+      "timerBefore": "00:06",
+      "timerAfter": "00:06",
+      "attempts": 1,
+      "expired": true,
+      "answersAfterDeadline": 1,
+      "examStillVisible": true
+    },
+    {
+      "name": "expired_saved_exam_auto_finish",
+      "resultVisible": true,
+      "savedExamCleared": true
+    }
+  ],
+  "observations": []
+}

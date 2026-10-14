@@ -2,7 +2,7 @@
     const $ = (id) => document.getElementById(id);
 
     const VIEWS = ['login', 'login-sent', 'login-confirm', 'privacy', 'categories', 'question', 'finish',
-        'exam-setup', 'exam', 'exam-result', 'history', 'stats', 'admin', 'admin-user', 'material'];
+        'exam-setup', 'exam', 'exam-result', 'history', 'training-history', 'training-batch', 'stats', 'admin', 'admin-user', 'material'];
     const EXAM_COUNTS = [20, 30, 50];
     const EXAM_DEFAULT_COUNT = 30;
     const SECONDS_PER_QUESTION = 90;
@@ -15,6 +15,8 @@
 
     let categories = [];
     let questions = [];
+    let trainingBatchId = null;
+    let trainingHistoryBefore = null;
     let index = 0;
     let exam = null;
     let user = null;
@@ -22,8 +24,10 @@
     let loginEmail = '';
     let loginRequest = '';
     let privacyReturn = 'login';
+    let viewRevision = 0;
 
     function show(name) {
+        viewRevision += 1;
         VIEWS.forEach((key) => {
             $(key + '-view').hidden = key !== name;
         });
@@ -359,9 +363,14 @@
 
     async function startMistakes() {
         showError('');
+        const revision = viewRevision;
         try {
-            questions = prepareQuestions(shuffle(await api('/api/mistakes')));
+            const batch = await postJson('/api/training/batches', { mode: 'mistakes' });
+            if (revision !== viewRevision) return;
+            trainingBatchId = batch.id;
+            questions = batch.questions;
         } catch (err) {
+            if (revision !== viewRevision) return;
             showError(err.message);
             return;
         }
@@ -429,9 +438,14 @@
 
     async function startCategory(category) {
         showError('');
+        const revision = viewRevision;
         try {
-            questions = prepareQuestions(shuffle(await api('/api/questions?category_id=' + encodeURIComponent(category.id) + '&limit=' + PORTION_SIZE)));
+            const batch = await postJson('/api/training/batches', { category_id: category.id, limit: PORTION_SIZE });
+            if (revision !== viewRevision) return;
+            trainingBatchId = batch.id;
+            questions = batch.questions;
         } catch (err) {
+            if (revision !== viewRevision) return;
             showError(err.message);
             return;
         }
@@ -468,18 +482,25 @@
 
     async function submitAnswer(event) {
         event.preventDefault();
+        if ($('question-view').hidden || $('submit').disabled) return;
         showError('');
+        const question = questions[index];
+        const revision = viewRevision;
         const answer = collectAnswer($('options'));
         if (answer === null) {
-            showError(isMulti(questions[index]) ? 'Выберите варианты ответа' : 'Выберите вариант ответа');
+            showError(isMulti(question) ? 'Выберите варианты ответа' : 'Выберите вариант ответа');
             return;
         }
+        $('submit').disabled = true;
+        document.querySelectorAll('#options input').forEach((input) => { input.disabled = true; });
         try {
             const result = await api('/api/answers', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ question_id: questions[index].id, answer }),
+                body: JSON.stringify({ question_id: question.id, answer, training_batch_id: trainingBatchId }),
             });
+            // Даже повторное открытие того же вопроса — уже другой экран.
+            if (revision !== viewRevision) return;
             const rightKeys = result.correct_answer.split('');
             document.querySelectorAll('#options .option').forEach((label) => {
                 const input = label.querySelector('input');
@@ -495,13 +516,16 @@
             const status = $('result-status');
             status.textContent = result.correct ? 'Верно' : 'Неверно';
             status.className = 'status ' + (result.correct ? 'ok' : 'bad');
-            const rightLetters = answerKeys(questions[index], result.correct_answer)
-                .map((key) => displayLetter(questions[index], key)).join(', ');
+            const rightLetters = answerKeys(question, result.correct_answer)
+                .map((key) => displayLetter(question, key)).join(', ');
             $('result-correct').textContent = (rightKeys.length > 1 ? 'Правильные ответы: ' : 'Правильный ответ: ') + rightLetters;
             $('result-explanation').textContent = result.explanation || '';
             $('result').hidden = false;
             $('submit').disabled = true;
         } catch (err) {
+            if (revision !== viewRevision) return;
+            $('submit').disabled = false;
+            document.querySelectorAll('#options input').forEach((input) => { input.disabled = false; });
             showError(err.message);
         }
     }
@@ -653,17 +677,17 @@
         restoreExam(data);
         show('exam');
         renderExamQuestion();
-        tick();
-        if (exam && !exam.finishing) exam.timerId = setInterval(tick, 1000);
+        startTimer();
     }
 
     function finishSavedExam() {
         const data = readSavedExam();
         if (!data) return;
         restoreExam(data);
-        finishExam(false).then(() => {
+        const restored = exam;
+        finishExam(false).then((completed) => {
             // если завершение отменили в диалоге, экзамен остаётся сохранённым
-            if (exam && !exam.finishing) exam = null;
+            if (completed === false && exam === restored) exam = null;
         });
     }
 
@@ -683,11 +707,33 @@
         return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
     }
 
-    function tick() {
+    function updateExamControls() {
+        const locked = exam.finishing || Date.now() >= exam.deadline;
+        document.querySelectorAll('#exam-options input').forEach((input) => {
+            input.disabled = locked;
+            input.closest('.option').classList.toggle('locked', locked);
+        });
+        $('exam-prev').disabled = exam.finishing || exam.index === 0;
+        $('exam-next').disabled = exam.finishing || exam.index === exam.questions.length - 1;
+        $('exam-finish').disabled = exam.finishing;
+    }
+
+    function startTimer(autoFinish = true) {
+        stopTimer();
+        tick(autoFinish);
+        if (exam && !exam.finishing && Date.now() < exam.deadline) {
+            exam.timerId = setInterval(tick, 1000);
+        }
+    }
+
+    function tick(autoFinish = true) {
+        if (!exam) return;
         const remaining = Math.ceil((exam.deadline - Date.now()) / 1000);
         $('exam-timer').textContent = formatTime(remaining);
+        updateExamControls();
         if (remaining <= 0) {
-            finishExam(true);
+            stopTimer();
+            if (autoFinish) finishExam(true);
         }
     }
 
@@ -722,8 +768,7 @@
         saveExam();
         show('exam');
         renderExamQuestion();
-        tick();
-        exam.timerId = setInterval(tick, 1000);
+        startTimer();
     }
 
     function renderExamQuestion() {
@@ -742,13 +787,17 @@
             const input = label.querySelector('input');
             input.checked = saved.includes(key);
             input.addEventListener('change', () => {
+                // Событие может прийти между истечением срока и следующим тиком таймера.
+                if (exam.finishing || Date.now() >= exam.deadline) {
+                    renderExamQuestion();
+                    return;
+                }
                 exam.answers[exam.index] = collectAnswer(options);
                 saveExam();
             });
             options.appendChild(label);
         });
-        $('exam-prev').disabled = exam.index === 0;
-        $('exam-next').disabled = exam.index === exam.questions.length - 1;
+        updateExamControls();
     }
 
     async function finishExam(auto) {
@@ -757,11 +806,16 @@
             const unanswered = exam.answers.filter((a) => a === null).length;
             if (unanswered > 0) {
                 const message = 'Без ответа: ' + unanswered + '. Завершить экзамен?';
-                if (!window.confirm(message)) return;
+                if (!window.confirm(message)) return false;
             }
         }
         exam.finishing = true;
+        const submitted = exam;
         stopTimer();
+        showError('');
+        show('exam');
+        renderExamQuestion();
+        tick(false);
         try {
             const result = await api('/api/exam/check', {
                 method: 'POST',
@@ -771,11 +825,110 @@
                     duration_seconds: Math.max(0, Math.min(86400, Math.round((Math.min(Date.now(), exam.deadline) - exam.startedAt) / 1000))),
                 }),
             });
+            if (exam !== submitted) return;
             clearSavedExam();
             renderResult(result);
+            return true;
         } catch (err) {
+            if (exam !== submitted) return;
             exam.finishing = false;
+            // До срока продолжаем отсчёт. После срока ждём ручного повтора,
+            // чтобы недоступный API не вызывался бесконечно каждую секунду.
+            startTimer(false);
             showError(err.message);
+        }
+    }
+
+    // История выданных тренировок: снимок вопросов и фактический порядок показа.
+
+    function openTrainingHistory() {
+        showError('');
+        show('training-history');
+        trainingHistoryBefore = null;
+        $('training-history-list').textContent = '';
+        $('training-history-empty').hidden = true;
+        $('training-history-more').hidden = true;
+        $('training-history-more').disabled = false;
+        loadTrainingHistoryPage();
+    }
+
+    async function loadTrainingHistoryPage() {
+        const more = $('training-history-more');
+        if (more.disabled) return;
+        more.disabled = true;
+        showError('');
+        const revision = viewRevision;
+        try {
+            const data = await api('/api/training/batches' + (trainingHistoryBefore ? '?before=' + trainingHistoryBefore : ''));
+            if (revision !== viewRevision) return;
+            data.batches.forEach((batch) => {
+                const item = document.createElement('li');
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'btn-secondary training-history-item';
+                const title = document.createElement('strong');
+                title.textContent = batch.category_name;
+                const meta = document.createElement('span');
+                meta.textContent = formatDate(batch.created_at) + ' · Порция №' + batch.id
+                    + ' · Ответов ' + batch.answered + ' из ' + batch.question_count;
+                button.appendChild(title);
+                button.appendChild(meta);
+                button.addEventListener('click', () => openTrainingBatch(batch.id));
+                item.appendChild(button);
+                $('training-history-list').appendChild(item);
+            });
+            trainingHistoryBefore = data.next_before;
+            more.hidden = data.next_before === null;
+            $('training-history-empty').hidden = $('training-history-list').children.length > 0;
+        } catch (err) {
+            if (revision !== viewRevision) return;
+            showError(err.message);
+            more.hidden = false;
+        } finally {
+            if (revision === viewRevision) more.disabled = false;
+        }
+    }
+
+    async function openTrainingBatch(id) {
+        showError('');
+        show('training-batch');
+        $('training-batch-title').textContent = '';
+        $('training-batch-meta').textContent = '';
+        $('training-batch-questions').textContent = '';
+        const revision = viewRevision;
+        try {
+            const batch = await api('/api/training/batches/' + id);
+            if (revision !== viewRevision) return;
+            $('training-batch-title').textContent = batch.category_name;
+            $('training-batch-meta').textContent = 'Порция №' + batch.id + ' · ' + formatDate(batch.created_at);
+            batch.questions.forEach((question) => {
+                const card = document.createElement('article');
+                card.className = 'result training-question';
+                const position = document.createElement('h3');
+                position.textContent = 'Вопрос ' + question.position;
+                const text = document.createElement('div');
+                text.className = 'question';
+                renderRich(text, question.question_text);
+                const status = document.createElement('p');
+                const answer = question.answer;
+                status.className = answer ? 'status ' + (answer.correct ? 'ok' : 'bad') : 'progress';
+                status.textContent = answer ? (answer.correct ? 'Верно' : 'Неверно') + ' · ' + formatDate(answer.answered_at) : 'Без ответа';
+                const options = document.createElement('div');
+                options.className = 'options';
+                question.order.forEach((key, i) => {
+                    const label = makeOption(key, LETTERS[i], question.options[key], 'history-' + question.position,
+                        isMulti(question) ? 'checkbox' : 'radio');
+                    const input = label.querySelector('input');
+                    input.disabled = true;
+                    input.checked = Boolean(answer && answer.selected_answer.includes(key));
+                    label.classList.add('locked');
+                    options.appendChild(label);
+                });
+                card.append(position, text, status, options);
+                $('training-batch-questions').appendChild(card);
+            });
+        } catch (err) {
+            if (revision === viewRevision) showError(err.message);
         }
     }
 
@@ -1084,18 +1237,22 @@
     $('open-exam').addEventListener('click', openExamSetup);
     $('open-mistakes').addEventListener('click', startMistakes);
     $('open-history').addEventListener('click', openHistory);
+    $('open-training-history').addEventListener('click', openTrainingHistory);
+    $('training-history-back').addEventListener('click', loadCategories);
+    $('training-history-more').addEventListener('click', loadTrainingHistoryPage);
+    $('training-batch-back').addEventListener('click', openTrainingHistory);
     $('history-back').addEventListener('click', loadCategories);
     $('exam-setup-back').addEventListener('click', loadCategories);
     $('exam-start').addEventListener('click', startExam);
     $('exam-prev').addEventListener('click', () => {
-        if (exam.index > 0) {
+        if (exam && !exam.finishing && exam.index > 0) {
             exam.index -= 1;
             saveExam();
             renderExamQuestion();
         }
     });
     $('exam-next').addEventListener('click', () => {
-        if (exam.index < exam.questions.length - 1) {
+        if (exam && !exam.finishing && exam.index < exam.questions.length - 1) {
             exam.index += 1;
             saveExam();
             renderExamQuestion();

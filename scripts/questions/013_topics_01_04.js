@@ -62,13 +62,13 @@ S('01', 'Какая утилита пакета Ubuntu выводит списо
     ['`pg_ctlcluster 16 main status`', false, 'Показывает состояние одного указанного кластера, а не список.'],
     ['`pg_config`', false, 'Показывает параметры сборки PostgreSQL.'],
     ['`pg_isready`', false, 'Только проверяет, принимает ли сервер подключения.'],
-], 'Утилиты pg_lsclusters, pg_createcluster, pg_dropcluster и pg_ctlcluster специфичны для Ubuntu.');
+], 'Утилиты pg_lsclusters, pg_createcluster, pg_dropcluster и pg_ctlcluster входят в пакет postgresql-common в Debian и Ubuntu.');
 S('01', 'Какая утилита пакета Ubuntu удаляет кластер баз данных?', [
-    ['`pg_dropcluster`', true, 'Парная к pg_createcluster утилита пакета Ubuntu.'],
+    ['`pg_dropcluster`', true, 'Парная к pg_createcluster утилита пакета postgresql-common в Debian и Ubuntu.'],
     ['`dropdb`', false, 'Удаляет одну базу данных внутри кластера, а не сам кластер.'],
     ['`pg_ctlcluster 16 main drop`', false, 'У pg_ctlcluster нет такой команды: она запускает, останавливает и перечитывает конфигурацию.'],
     ['`initdb --remove`', false, 'Такого ключа нет: initdb только создаёт кластеры.'],
-], 'В других системах кластер создают initdb и удаляют средствами ОС.');
+], 'В Debian и Ubuntu pg_dropcluster входит в пакет postgresql-common. При установке из исходников без этих обёрток кластер создают с помощью initdb, а для удаления останавливают сервер и удаляют его файлы средствами ОС.');
 M('01', 'Какие команды можно передать утилите pg_ctlcluster в Ubuntu?', [
     ['`start`', true, 'Запускает сервер указанного кластера.'],
     ['`restart`', true, 'Перезапускает сервер указанного кластера.'],

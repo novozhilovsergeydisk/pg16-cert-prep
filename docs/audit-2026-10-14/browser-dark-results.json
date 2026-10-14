@@ -1,0 +1,23 @@
+{
+  "checks": [
+    {
+      "name": "question_268_width_390",
+      "format": "code",
+      "status": "Верно",
+      "notes": 4,
+      "pageWidth": 390,
+      "viewport": 390
+    },
+    {
+      "name": "code_dark_layout",
+      "viewport": 390,
+      "scrollWidth": 390,
+      "overflowing": []
+    },
+    {
+      "name": "browser_version",
+      "version": "154.0.8037.97"
+    }
+  ],
+  "observations": []
+}

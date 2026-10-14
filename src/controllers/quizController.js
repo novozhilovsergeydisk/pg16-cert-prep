@@ -1,5 +1,6 @@
 const pool = require('../config/db');
 const { examHistory } = require('./statsController');
+const { answerTrainingQuestion } = require('./trainingController');
 
 const INT4_MAX = 2147483647;
 
@@ -120,6 +121,7 @@ async function postAnswer(req, res) {
     if (questionId === null || answer === null) {
         return res.status(400).json({ error: 'Некорректные question_id или answer' });
     }
+    if (body.training_batch_id !== undefined) return answerTrainingQuestion(req, res, questionId, answer);
     try {
         const result = await pool.query(
             'SELECT correct_answer, explanation, option_notes FROM questions WHERE id = $1',

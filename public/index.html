@@ -62,6 +62,7 @@
                 <button id="open-exam" class="btn" type="button">Экзамен</button>
                 <button id="open-mistakes" class="btn-secondary" type="button">Работа над ошибками</button>
                 <button id="open-history" class="btn-secondary" type="button">История экзаменов</button>
+                <button id="open-training-history" class="btn-secondary" type="button">История тренировок</button>
                 <button id="open-stats" class="btn-secondary" type="button">Моя статистика</button>
                 <button id="open-admin" class="btn-secondary" type="button" hidden>Статистика пользователей</button>
             </div>
@@ -138,6 +139,22 @@
                     <tbody id="stats-topics"></tbody>
                 </table>
             </div>
+        </section>
+
+        <section id="training-history-view" hidden>
+            <button id="training-history-back" class="btn-secondary back" type="button">К списку категорий</button>
+            <h2>История тренировок</h2>
+            <p class="progress">Здесь сохраняются выданные порции, включая вопросы без ответа. Старые тренировки, пройденные до появления истории, в список не входят.</p>
+            <p id="training-history-empty" class="progress" hidden>Пока нет сохранённых тренировок.</p>
+            <ul id="training-history-list" class="plain"></ul>
+            <button id="training-history-more" class="btn-secondary" type="button" hidden>Показать ещё</button>
+        </section>
+
+        <section id="training-batch-view" hidden>
+            <button id="training-batch-back" class="btn-secondary back" type="button">К истории тренировок</button>
+            <h2 id="training-batch-title"></h2>
+            <p id="training-batch-meta" class="progress"></p>
+            <div id="training-batch-questions"></div>
         </section>
 
         <section id="admin-view" hidden>

@@ -85,6 +85,7 @@ h2 {
     padding: 0;
     list-style: none;
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 12px;
 }
 
@@ -305,6 +306,8 @@ button {
 
 .card-name {
     flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .card-count {
@@ -312,6 +315,24 @@ button {
     color: var(--muted);
     font-size: 0.9rem;
     white-space: nowrap;
+}
+
+.training-history-item {
+    display: grid;
+    gap: 6px;
+    width: 100%;
+    margin-bottom: 12px;
+    text-align: left;
+    overflow-wrap: anywhere;
+}
+
+.training-history-item span {
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+.training-question h3 {
+    margin-top: 0;
 }
 
 .progress {
@@ -712,6 +733,26 @@ pre code {
 
     .question {
         font-size: 1.1rem;
+    }
+
+    .card {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 4px 12px;
+    }
+
+    .card-name,
+    .card-count {
+        grid-column: 1;
+    }
+
+    .card-count {
+        margin-right: 0;
+    }
+
+    .card::after {
+        grid-column: 2;
+        grid-row: 1 / span 2;
     }
 }
 
