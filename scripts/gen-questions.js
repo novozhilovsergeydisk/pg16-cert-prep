@@ -70,7 +70,47 @@ sql += `DO $check$\nDECLARE n integer;\nBEGIN\n    SELECT count(*) INTO n FROM q
 sql += `    IF n < ${Q.length} THEN\n        RAISE EXCEPTION 'Ожидалось не меньше ${Q.length} вопросов с пояснениями в темах ${topics[0]}–${topics[topics.length - 1]}, найдено %', n;\n    END IF;\nEND\n$check$;\n\nCOMMIT;\n`;
 const migrationPath = path.join(__dirname, '..', 'migrations', data.migration + '.sql');
 if (data.strictInsert) {
-    const sources = [...new Set(Q.flatMap((q) => q.sources || []))];
+    const sources = [...new Set([...Q.flatMap((q) => q.sources || []), ...(data.updateSources || [])])];
+    const updates = data.explanationUpdates || [];
+    if (new Set(updates.map((x) => x.t + ':' + x.q)).size !== updates.length) throw new Error('повтор исправляемого вопроса');
+    const updateRows = updates.map((x) => {
+        const keys = Object.keys(x.options);
+        if (!/^\d{2}$/.test(x.t) || !x.q || !x.oldExplanation || !x.e || /`/.test(x.e)
+            || !/^[A-E]+$/.test(x.correct) || ![...x.correct].every((key) => keys.includes(key))
+            || [x.oldNotes, x.notes].some((notes) => Object.keys(notes).sort().join('') !== keys.slice().sort().join('')
+                || Object.values(notes).some((note) => !note || /`/.test(note)))) {
+            throw new Error('неверное описание исправления пояснений');
+        }
+        return `        (${[x.t + '.', x.q, JSON.stringify(x.options), x.correct, x.oldExplanation,
+            JSON.stringify(x.oldNotes), x.e, JSON.stringify(x.notes)].map(lit).join(', ')})`;
+    });
+    const updateSql = updates.length ? `DO $notes$
+DECLARE fix record; matches integer;
+BEGIN
+    FOR fix IN SELECT * FROM (VALUES
+${updateRows.join(',\n')}
+    ) AS fixes(topic, question_text, options, correct_answer, old_explanation, old_notes, explanation, notes)
+    LOOP
+        SELECT count(*) INTO matches FROM questions q JOIN categories c ON c.id = q.category_id
+        WHERE left(c.name, 3) = fix.topic AND q.question_text = fix.question_text;
+        IF matches <> 1 OR NOT EXISTS (
+            SELECT 1 FROM questions q JOIN categories c ON c.id = q.category_id
+            WHERE left(c.name, 3) = fix.topic AND q.question_text = fix.question_text
+              AND q.options = fix.options::jsonb AND q.correct_answer = fix.correct_answer
+              AND ((q.explanation = fix.old_explanation AND q.option_notes = fix.old_notes::jsonb)
+                OR (q.explanation = fix.explanation AND q.option_notes = fix.notes::jsonb))
+        ) THEN
+            RAISE EXCEPTION 'Не найден единственный вопрос с ожидаемыми ключами и пояснениями';
+        END IF;
+        UPDATE questions q SET explanation = fix.explanation, option_notes = fix.notes::jsonb
+        FROM categories c WHERE c.id = q.category_id AND left(c.name, 3) = fix.topic
+          AND q.question_text = fix.question_text
+          AND (q.explanation IS DISTINCT FROM fix.explanation OR q.option_notes IS DISTINCT FROM fix.notes::jsonb);
+    END LOOP;
+END
+$notes$;
+
+` : '';
     sql = `-- ${data.header}
 -- Источник: ${path.relative(path.join(__dirname, '..'), path.resolve(dataFile))}
 -- Повторный запуск безопасен; несовпадение ранее добавленного вопроса отменяет пакет.
@@ -80,7 +120,7 @@ BEGIN;
 SET LOCAL standard_conforming_strings = on;
 LOCK TABLE questions IN SHARE ROW EXCLUSIVE MODE;
 
-CREATE TEMP TABLE question_seed (
+${updateSql}CREATE TEMP TABLE question_seed (
     category_id integer NOT NULL,
     question_text text NOT NULL UNIQUE,
     options jsonb NOT NULL,
