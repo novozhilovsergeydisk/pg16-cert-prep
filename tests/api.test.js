@@ -15,6 +15,42 @@ let base;
 let userA;
 let cookieA;
 
+test('Основы объектов: новые вопросы доступны в пуле, пятый вариант и ключи проверяются полностью', async () => {
+    const texts = require('../scripts/questions/030_database_object_basics').questions.map((q) => q.q);
+    const added = (await pool.query('SELECT * FROM questions WHERE question_text=ANY($1::text[])', [texts])).rows;
+    assert.equal(added.length, 30, 'Нужна миграция 030');
+    const user = await createUser();
+    for (const category of [...new Set(added.map((q) => q.category_id))]) {
+        const response = await post('/api/training/batches', { category_id: category, limit: 200 }, user.cookie);
+        assert.equal(response.status, 201);
+        const batch = response.body;
+        for (const q of added.filter((q) => q.category_id === category)) {
+            const shown = batch.questions.find((item) => item.id === q.id);
+            assert.ok(shown);
+            assert.deepEqual(shown.options, q.options);
+            assert.equal(shown.correct_count, q.correct_answer.length);
+            assert.deepEqual([...shown.order].sort(), Object.keys(q.options).sort());
+            for (const key of ['correct_answer', 'option_notes', 'explanation']) assert.ok(!(key in shown));
+            const answer = await post('/api/answers', { question_id: q.id, training_batch_id: batch.id, answer: q.correct_answer }, user.cookie);
+            assert.equal(answer.status, 200);
+            assert.equal(answer.body.correct, true);
+            assert.deepEqual(answer.body.option_notes, q.option_notes);
+        }
+        const portion = await post('/api/training/batches', { category_id: category }, user.cookie);
+        assert.equal(portion.body.questions.length, 16);
+        assert.equal(new Set(portion.body.questions.map((q) => q.id)).size, 16);
+        assert.equal(new Set(portion.body.questions.map((q) => q.question_text.trim().replace(/\s+/g, ' '))).size, 16);
+    }
+    const multi = added.find((q) => Object.keys(q.options).length === 5 && q.correct_answer.includes('E') && q.correct_answer.length > 1);
+    assert.ok(multi, 'Нужен множественный ответ, включающий пятый вариант');
+    const incomplete = await post('/api/exam/check', { answers: [{ question_id: multi.id, answer: multi.correct_answer.replace('E', '') }] }, user.cookie);
+    assert.equal(incomplete.status, 200);
+    assert.equal(incomplete.body.correct, 0);
+    const complete = await post('/api/exam/check', { answers: added.map((q) => ({ question_id: q.id, answer: q.correct_answer })) }, user.cookie);
+    assert.equal(complete.status, 200);
+    assert.equal(complete.body.correct, 30);
+});
+
 test('История тренировок: сохраняет все 16 вопросов и порядок, не раскрывает ответы', async () => {
     const user = await createUser();
     const { status, body } = await post('/api/training/batches', { category_id: 1 }, user.cookie);

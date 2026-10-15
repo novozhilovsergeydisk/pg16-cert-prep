@@ -19,15 +19,15 @@ const exportDir = exportIdx >= 0 ? rest[exportIdx + 1] : null;
 
 const data = require(path.resolve(dataFile));
 const Q = data.questions;
-const LETTERS = ['A', 'B', 'C', 'D'];
+const LETTERS = ['A', 'B', 'C', 'D', 'E'];
 const topics = Object.keys(data.target).sort();
 
 // Проверки данных
 const cnt = {};
 for (const x of Q) {
     cnt[x.t] = (cnt[x.t] || 0) + 1;
-    if (x.opts.length !== 4) throw new Error('не 4 варианта: ' + x.q);
-    if (new Set(x.opts.map((o) => o[0])).size !== 4) throw new Error('повтор вариантов: ' + x.q);
+    if (![4, 5].includes(x.opts.length)) throw new Error('нужно 4 или 5 вариантов: ' + x.q);
+    if (new Set(x.opts.map((o) => o[0])).size !== x.opts.length) throw new Error('повтор вариантов: ' + x.q);
     const ok = x.opts.filter((o) => o[1]).length;
     if (x.kind === 'multi' ? ok < 2 : ok !== 1) throw new Error('число верных: ' + x.q);
     if (x.kind === 'code' && !x.q.includes('___')) throw new Error('нет пропуска: ' + x.q);
@@ -69,6 +69,63 @@ sql += 'WHERE NOT EXISTS (SELECT 1 FROM questions q WHERE q.question_text = n.qu
 sql += `DO $check$\nDECLARE n integer;\nBEGIN\n    SELECT count(*) INTO n FROM questions WHERE option_notes IS NOT NULL AND category_id IN (SELECT id FROM categories WHERE left(name, 3) IN (${topicList}));\n`;
 sql += `    IF n < ${Q.length} THEN\n        RAISE EXCEPTION 'Ожидалось не меньше ${Q.length} вопросов с пояснениями в темах ${topics[0]}–${topics[topics.length - 1]}, найдено %', n;\n    END IF;\nEND\n$check$;\n\nCOMMIT;\n`;
 const migrationPath = path.join(__dirname, '..', 'migrations', data.migration + '.sql');
+if (data.strictInsert) {
+    const sources = [...new Set(Q.flatMap((q) => q.sources || []))];
+    sql = `-- ${data.header}
+-- Источник: ${path.relative(path.join(__dirname, '..'), path.resolve(dataFile))}
+-- Повторный запуск безопасен; несовпадение ранее добавленного вопроса отменяет пакет.
+${sources.map((url) => '-- ' + url).join('\n')}
+
+BEGIN;
+SET LOCAL standard_conforming_strings = on;
+LOCK TABLE questions IN SHARE ROW EXCLUSIVE MODE;
+
+CREATE TEMP TABLE question_seed (
+    category_id integer NOT NULL,
+    question_text text NOT NULL UNIQUE,
+    options jsonb NOT NULL,
+    correct_answer text NOT NULL,
+    explanation text NOT NULL,
+    option_notes jsonb NOT NULL
+) ON COMMIT DROP;
+
+INSERT INTO question_seed
+${rows.join('\nUNION ALL\n')};
+
+DO $check$
+DECLARE candidate record; matches integer;
+BEGIN
+    FOR candidate IN SELECT * FROM question_seed LOOP
+        SELECT count(*) INTO matches FROM questions q
+        WHERE regexp_replace(trim(q.question_text), '[[:space:]]+', ' ', 'g') =
+              regexp_replace(trim(candidate.question_text), '[[:space:]]+', ' ', 'g');
+        IF matches > 1 OR (matches = 1 AND NOT EXISTS (
+            SELECT 1 FROM questions q WHERE q.question_text = candidate.question_text
+              AND q.category_id = candidate.category_id AND q.options = candidate.options
+              AND q.correct_answer = candidate.correct_answer AND q.explanation = candidate.explanation
+              AND q.option_notes = candidate.option_notes
+        )) THEN
+            RAISE EXCEPTION 'Конфликт содержимого или повтор нового вопроса';
+        END IF;
+    END LOOP;
+END
+$check$;
+
+INSERT INTO questions(category_id, question_text, options, correct_answer, explanation, option_notes)
+SELECT n.* FROM question_seed n
+WHERE NOT EXISTS (SELECT 1 FROM questions q WHERE q.question_text = n.question_text);
+
+DO $check$
+BEGIN
+    IF (SELECT count(*) FROM questions q JOIN question_seed n ON q.question_text = n.question_text) <> ${Q.length} THEN
+        RAISE EXCEPTION 'Неверное число вопросов после добавления';
+    END IF;
+END
+$check$;
+
+COMMIT;
+`;
+}
 fs.writeFileSync(migrationPath, sql);
 
 const dist = {};

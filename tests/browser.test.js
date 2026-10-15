@@ -55,7 +55,7 @@ async function pageFor(t, width = 390) {
     return { page, userId };
 }
 
-async function training(page, id = 4) {
+async function training(page, id = 4, topic = '01.') {
     const q = questions.find((q) => q.id === id);
     assert.ok(q, 'Нужен вопрос из установленного набора миграций');
     await page.route('**/api/training/batches', async (route) => {
@@ -65,7 +65,7 @@ async function training(page, id = 4) {
         const batch = await response.json();
         await route.fulfill({ response, json: { ...batch, questions: batch.questions.filter((item) => item.id === id) } });
     });
-    await page.locator('#categories .card').filter({ hasText: '01.' }).click();
+    await page.locator('#categories .card').filter({ hasText: topic }).click();
     await page.locator('#question-view').waitFor({ state: 'visible' });
     return q;
 }
@@ -365,6 +365,25 @@ for (const id of [264, 268]) {
         await page.locator('#result').waitFor({ state: 'visible' });
         assert.equal(await page.locator('#result-status').textContent(), 'Верно');
         assert.equal(await page.locator('#options .option-note').count(), 4);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 320);
+    });
+}
+
+for (const multiple of [false, true]) {
+    test('Пять вариантов: ' + (multiple ? 'множественный' : 'одиночный') + ' выбор, пояснения и история на 320 px', async (t) => {
+        const texts = require('../scripts/questions/030_database_object_basics').questions.map((q) => q.q);
+        const q = questions.find((q) => texts.includes(q.question_text) && Object.keys(q.options).length === 5 && (q.correct_answer.length > 1) === multiple);
+        assert.ok(q, 'Нужен новый вопрос с пятью вариантами');
+        const category = (await query('SELECT name FROM categories WHERE id=$1', [q.category_id])).rows[0].name.slice(0, 3);
+        const { page } = await pageFor(t, 320);
+        await training(page, q.id, category);
+        assert.equal(await page.locator('#options input').count(), 5);
+        assert.equal(await page.locator('#options input[type="' + (multiple ? 'checkbox' : 'radio') + '"]').count(), 5);
+        await choose(page, q.correct_answer);
+        await page.locator('#submit').click();
+        await page.locator('#result').waitFor({ state: 'visible' });
+        assert.equal(await page.locator('#result-status').textContent(), 'Верно');
+        assert.equal(await page.locator('#options .option-note').count(), 5);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 320);
     });
 }
