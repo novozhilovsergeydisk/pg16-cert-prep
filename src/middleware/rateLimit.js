@@ -38,4 +38,6 @@ module.exports = {
     // Ответы и проверка экзаменов: на пользователя, против раздувания журнала.
     answerLimit: rateLimit({ limit: 1000, windowMs: HOUR_MS, key: byUser }),
     examCheckLimit: rateLimit({ limit: 20, windowMs: HOUR_MS, key: byUser }),
+    // Отчёты страницы о сбоях: принимаются и без входа, поэтому ограничены по IP.
+    clientErrorLimit: rateLimit({ limit: 30, windowMs: HOUR_MS, key: byIp }),
 };

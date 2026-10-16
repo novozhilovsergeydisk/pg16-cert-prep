@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const pool = require('../config/db');
+const { noteError, logError } = require('./requestLog');
 
 const COOKIE_NAME = 'sid';
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
@@ -54,6 +55,7 @@ async function requireAuth(req, res, next) {
         req.user = result.rows[0];
         next();
     } catch (err) {
+        noteError(res, err);
         res.status(500).json({ error: 'Ошибка запроса к БД' });
     }
 }
@@ -65,4 +67,20 @@ function requireAdmin(req, res, next) {
     next();
 }
 
-module.exports = { COOKIE_NAME, newToken, hashToken, isToken, appUrl, readCookie, checkOrigin, requireAuth, requireAdmin };
+// Номер пользователя по cookie сеанса без требования входа; '-', если сеанса нет или БД недоступна.
+async function sessionUserId(req) {
+    const sid = readCookie(req, COOKIE_NAME);
+    if (!isToken(sid)) return '-';
+    try {
+        const result = await pool.query(
+            'SELECT user_id FROM sessions WHERE token_hash = $1 AND expires_at > now()',
+            [hashToken(sid)]
+        );
+        return result.rowCount ? result.rows[0].user_id : '-';
+    } catch (err) {
+        logError('session_lookup', err);
+        return '-';
+    }
+}
+
+module.exports = { COOKIE_NAME, newToken, hashToken, isToken, appUrl, readCookie, checkOrigin, requireAuth, requireAdmin, sessionUserId };

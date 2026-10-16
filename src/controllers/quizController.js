@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const { noteError, logError } = require('../middleware/requestLog');
 const { examHistory } = require('./statsController');
 const { answerTrainingQuestion } = require('./trainingController');
 
@@ -44,6 +45,7 @@ async function logAnswers(userId, entries) {
         );
     } catch (err) {
         // журнал вторичен: ответ пользователю всё равно отдаётся
+        logError('answer_log', err);
     }
 }
 
@@ -56,6 +58,7 @@ async function saveExam(userId, { total, correct, percent, passed, durationSecon
         );
     } catch (err) {
         // результат всё равно отдаётся пользователю
+        logError('exam_history', err);
     }
 }
 
@@ -70,6 +73,7 @@ async function getCategories(req, res) {
         );
         res.json(result.rows);
     } catch (err) {
+        noteError(res, err);
         res.status(500).json({ error: 'Ошибка запроса к БД' });
     }
 }
@@ -110,6 +114,7 @@ async function getQuestions(req, res) {
             );
         res.json(result.rows);
     } catch (err) {
+        noteError(res, err);
         res.status(500).json({ error: 'Ошибка запроса к БД' });
     }
 }
@@ -140,6 +145,7 @@ async function postAnswer(req, res) {
             option_notes,
         });
     } catch (err) {
+        noteError(res, err);
         res.status(500).json({ error: 'Ошибка запроса к БД' });
     }
 }
@@ -172,6 +178,7 @@ async function getExam(req, res) {
             );
         res.json(result.rows);
     } catch (err) {
+        noteError(res, err);
         res.status(500).json({ error: 'Ошибка запроса к БД' });
     }
 }
@@ -243,6 +250,7 @@ async function postExamCheck(req, res) {
             results,
         });
     } catch (err) {
+        noteError(res, err);
         res.status(500).json({ error: 'Ошибка запроса к БД' });
     }
 }
@@ -265,6 +273,7 @@ async function getMistakes(req, res) {
         );
         res.json(result.rows);
     } catch (err) {
+        noteError(res, err);
         res.status(500).json({ error: 'Ошибка запроса к БД' });
     }
 }
@@ -274,6 +283,7 @@ async function getExamHistory(req, res) {
     try {
         res.json(await examHistory(req.user.id));
     } catch (err) {
+        noteError(res, err);
         res.status(500).json({ error: 'Ошибка запроса к БД' });
     }
 }

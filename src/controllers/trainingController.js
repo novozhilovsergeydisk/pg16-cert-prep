@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const { noteError } = require('../middleware/requestLog');
 
 function parseId(value) {
     if (!['number', 'string'].includes(typeof value) || !/^\d+$/.test(String(value))) return null;
@@ -66,7 +67,8 @@ async function createTrainingBatch(req, res) {
             [req.user.id, mode === 'category' ? categoryId : null, name, mode, JSON.stringify(questions)]
         );
         res.status(201).json({ ...batch.rows[0], questions: questions.map(publicQuestion) });
-    } catch (_) {
+    } catch (err) {
+        noteError(res, err);
         res.status(500).json({ error: 'Не удалось сохранить порцию вопросов' });
     }
 }
@@ -97,7 +99,8 @@ async function answerTrainingQuestion(req, res, questionId, answer) {
         }
         res.json({ correct, correct_answer: question.correct_answer,
             explanation: question.explanation, option_notes: question.option_notes });
-    } catch (_) {
+    } catch (err) {
+        noteError(res, err);
         res.status(500).json({ error: 'Не удалось сохранить ответ' });
     }
 }
@@ -115,7 +118,8 @@ async function getTrainingBatches(req, res) {
         );
         const batches = result.rows.slice(0, 50);
         res.json({ batches, next_before: result.rows.length > 50 ? batches[49].id : null });
-    } catch (_) {
+    } catch (err) {
+        noteError(res, err);
         res.status(500).json({ error: 'Не удалось прочитать историю тренировок' });
     }
 }
@@ -137,7 +141,8 @@ async function getTrainingBatch(req, res) {
         const byId = new Map(answers.map((a) => [a.question_id, a]));
         res.json({ ...batch, questions: batch.questions.map((q, index) => ({ ...publicQuestion(q),
             position: index + 1, answer: byId.get(q.id) || null })) });
-    } catch (_) {
+    } catch (err) {
+        noteError(res, err);
         res.status(500).json({ error: 'Не удалось прочитать порцию вопросов' });
     }
 }

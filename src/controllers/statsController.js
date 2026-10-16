@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const { noteError } = require('../middleware/requestLog');
 
 const HISTORY_LIMIT = 50;
 const HARD_LIMIT = 20;
@@ -47,6 +48,7 @@ async function getMyStats(req, res) {
     try {
         res.json({ topics: await topicStats(req.user.id) });
     } catch (err) {
+        noteError(res, err);
         res.status(500).json({ error: 'Ошибка запроса к БД' });
     }
 }
@@ -76,6 +78,7 @@ async function getAdminUsers(req, res) {
         );
         res.json(result.rows);
     } catch (err) {
+        noteError(res, err);
         res.status(500).json({ error: 'Ошибка запроса к БД' });
     }
 }
@@ -92,6 +95,7 @@ async function getAdminUser(req, res) {
         }
         res.json({ user: user.rows[0], topics: await topicStats(id), exams: await examHistory(id) });
     } catch (err) {
+        noteError(res, err);
         res.status(500).json({ error: 'Ошибка запроса к БД' });
     }
 }
@@ -115,6 +119,7 @@ async function getHardQuestions(req, res) {
         );
         res.json(result.rows);
     } catch (err) {
+        noteError(res, err);
         res.status(500).json({ error: 'Ошибка запроса к БД' });
     }
 }

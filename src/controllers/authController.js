@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const pool = require('../config/db');
+const { noteError, logError } = require('../middleware/requestLog');
 const { sendMail } = require('../services/mailer');
 const { COOKIE_NAME, newToken, hashToken, isToken, appUrl, readCookie } = require('../middleware/auth');
 const { TOO_OFTEN } = require('../middleware/rateLimit');
@@ -39,7 +40,11 @@ function cookieOptions() {
     };
 }
 
+// Весь запрос, включая работу с БД и отправку письма, должен уложиться в 12 с: страница ждёт 15 с.
+const REQUEST_LINK_BUDGET_MS = 12000;
+
 async function requestLink(req, res) {
+    const started = Date.now();
     const email = normalizeEmail((req.body || {}).email);
     if (email === null) {
         return res.status(400).json({ error: 'Некорректный email' });
@@ -47,13 +52,21 @@ async function requestLink(req, res) {
     const token = newToken();
     const requestId = newToken();
     const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+    const deadlineAt = started + REQUEST_LINK_BUDGET_MS;
+    const left = () => deadlineAt - Date.now();
     const client = await pool.connect();
+    // Каждый запрос транзакции ограничен временем, оставшимся до общего срока.
+    const query = (text, values) => (left() < 1
+        ? Promise.reject(Object.assign(new Error('Срок запроса истёк'), { code: 'EDEADLINE' }))
+        : client.query({ text, values, query_timeout: left() }));
+    // Откат не подтверждён — соединение может быть в незавершённой транзакции: не возвращать его в пул.
+    let broken = false;
     try {
         // Проверка лимита и создание запроса — под блокировкой по адресу, чтобы параллельные запросы
         // не обошли лимит писем. Блокировка снимается в конце транзакции.
-        await client.query('BEGIN');
-        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [email]);
-        const recent = await client.query(
+        await query('BEGIN');
+        await query('SELECT pg_advisory_xact_lock(hashtext($1))', [email]);
+        const recent = await query(
             `SELECT count(*) FILTER (WHERE created_at > now() - interval '1 minute')::int AS minute, count(*)::int AS hour
              FROM login_tokens
              WHERE email = $1 AND created_at > now() - interval '1 hour'`,
@@ -61,21 +74,31 @@ async function requestLink(req, res) {
         );
         const { minute, hour } = recent.rows[0];
         if (minute >= EMAIL_PER_MINUTE || hour >= EMAIL_PER_HOUR) {
-            await client.query('ROLLBACK');
+            await query('ROLLBACK');
             return res.status(429).json({ error: TOO_OFTEN });
         }
-        await client.query("DELETE FROM login_tokens WHERE expires_at < now() - interval '1 day'");
-        await client.query(
+        await query("DELETE FROM login_tokens WHERE expires_at < now() - interval '1 day'");
+        await query(
             `INSERT INTO login_tokens (token_hash, email, expires_at, code_hash, request_hash)
              VALUES ($1, $2, now() + make_interval(mins => $3), $4, $5)`,
             [hashToken(token), email, TOKEN_TTL_MINUTES, codeHash(email, requestId, code), hashToken(requestId)]
         );
-        await client.query('COMMIT');
+        await query('COMMIT');
     } catch (err) {
-        await client.query('ROLLBACK').catch(() => {});
+        noteError(res, err);
+        // Срок истёк посреди запроса: соединение занято незавершённым запросом, откат на нём не выполнить.
+        // Соединение уничтожается, и PostgreSQL сам откатывает транзакцию при разрыве.
+        if (err.code === 'EDEADLINE' || err.message === 'Query read timeout') {
+            broken = true;
+        } else {
+            await query('ROLLBACK').catch((rollbackErr) => {
+                broken = true;
+                logError('rollback', rollbackErr);
+            });
+        }
         return res.status(500).json({ error: 'Ошибка запроса к БД' });
     } finally {
-        client.release();
+        client.release(broken);
     }
     try {
         // Токен в части после #: браузер не отправляет её на сервер, она не попадает в журналы nginx.
@@ -85,10 +108,12 @@ async function requestLink(req, res) {
             subject: `Вход на ${new URL(site).host}`,
             text: `Ссылка для входа действует ${TOKEN_TTL_MINUTES} минут: ${site}/#login=${token}\n\n`
                 + `Или введите код на странице входа: ${code}`,
+            deadlineAt,
         });
         // Номер запроса знает только эта страница: без него код проверить нельзя.
         res.json({ ok: true, request_id: requestId });
     } catch (err) {
+        noteError(res, err);
         // Текст ошибки почтового сервера может содержать адреса и логины — выводится только код.
         console.error('Не удалось отправить ссылку для входа:', err && err.code ? err.code : 'ошибка');
         res.status(500).json({ error: 'Не удалось отправить письмо, попробуйте позже' });
@@ -131,6 +156,7 @@ async function peekLink(req, res) {
         }
         res.json({ email: found.rows[0].email });
     } catch (err) {
+        noteError(res, err);
         res.status(500).json({ error: 'Ошибка запроса к БД' });
     }
 }
@@ -141,6 +167,8 @@ async function verifyLink(req, res) {
         return res.status(400).json({ error: BAD_LINK });
     }
     const client = await pool.connect();
+    // Откат не подтверждён — соединение может быть в незавершённой транзакции: не возвращать его в пул.
+    let broken = false;
     try {
         await client.query('BEGIN');
         const used = await client.query(
@@ -155,10 +183,14 @@ async function verifyLink(req, res) {
         }
         await openSession(client, res, used.rows[0].email);
     } catch (err) {
-        await client.query('ROLLBACK').catch(() => {});
+        noteError(res, err);
+        await client.query('ROLLBACK').catch((rollbackErr) => {
+            broken = true;
+            logError('rollback', rollbackErr);
+        });
         res.status(500).json({ error: 'Ошибка запроса к БД' });
     } finally {
-        client.release();
+        client.release(broken);
     }
 }
 
@@ -174,6 +206,8 @@ async function verifyCode(req, res) {
         return res.status(400).json({ error: BAD_CODE });
     }
     const client = await pool.connect();
+    // Откат не подтверждён — соединение может быть в незавершённой транзакции: не возвращать его в пул.
+    let broken = false;
     try {
         await client.query('BEGIN');
         const last = await client.query(
@@ -198,10 +232,14 @@ async function verifyCode(req, res) {
         await client.query('UPDATE login_tokens SET used_at = now() WHERE token_hash = $1', [row.token_hash]);
         await openSession(client, res, email);
     } catch (err) {
-        await client.query('ROLLBACK').catch(() => {});
+        noteError(res, err);
+        await client.query('ROLLBACK').catch((rollbackErr) => {
+            broken = true;
+            logError('rollback', rollbackErr);
+        });
         res.status(500).json({ error: 'Ошибка запроса к БД' });
     } finally {
-        client.release();
+        client.release(broken);
     }
 }
 
@@ -214,6 +252,7 @@ async function logout(req, res) {
         res.clearCookie(COOKIE_NAME, cookieOptions());
         res.json({ ok: true });
     } catch (err) {
+        noteError(res, err);
         res.status(500).json({ error: 'Ошибка запроса к БД' });
     }
 }

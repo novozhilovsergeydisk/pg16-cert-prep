@@ -187,6 +187,115 @@ test('Тренировка: после отказа API можно исправ�
     assert.equal(await page.locator('#error').isVisible(), false);
 });
 
+for (const [name, fail, kind] of [
+    ['обрыв сети', (route) => route.abort('failed'), 'network'],
+    ['ответ шлюза 504 без JSON', (route) => route.fulfill({ status: 504, contentType: 'text/html', body: '<html>504</html>' }), 'gateway'],
+    ['испорченное тело при коде 200', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"corr' }), 'gateway'],
+]) {
+    test('Тренировка: ' + name + ' — понятное сообщение, отчёт в журнал, ответ можно повторить', async (t) => {
+        const { page } = await pageFor(t);
+        const q = await training(page);
+        const reports = [];
+        await page.route('**/api/client-errors', async (route) => {
+            reports.push(JSON.parse(route.request().postData()));
+            await route.fulfill({ status: 204 });
+        });
+        await page.route('**/api/answers', fail, { times: 1 });
+        await choose(page, q.correct_answer);
+        await page.locator('#submit').click();
+        await page.locator('#error').waitFor({ state: 'visible' });
+        assert.equal(await page.locator('#error').textContent(), 'Сервер не ответил, ответ не сохранён — нажмите «Ответить» ещё раз');
+        assert.equal(await page.locator('#submit').isEnabled(), true);
+        // Ответ не подтверждён: выбор заблокирован, повтор отправит тот же ответ.
+        assert.equal(await page.locator('#options input:enabled').count(), 0);
+        await expectReport(reports, kind);
+        await page.locator('#submit').click();
+        await page.locator('#result').waitFor({ state: 'visible' });
+        assert.equal(await page.locator('#result-status').textContent(), 'Верно');
+    });
+}
+
+test('Тренировка: сервер молчит 15 с — страница прекращает ждать, сообщает и шлёт отчёт', async (t) => {
+    const { page } = await pageFor(t);
+    const q = await training(page);
+    const reports = [];
+    await page.route('**/api/client-errors', async (route) => {
+        reports.push(JSON.parse(route.request().postData()));
+        await route.fulfill({ status: 204 });
+    });
+    let arrived;
+    const reached = new Promise((resolve) => { arrived = resolve; });
+    // Ответа нет вовсе: запрос обрывает сама страница по ограничению времени.
+    await page.route('**/api/answers', () => arrived(), { times: 1 });
+    await choose(page, q.correct_answer);
+    await page.locator('#submit').click();
+    await reached;
+    assert.equal(await page.locator('#error').isVisible(), false);
+    await page.clock.fastForward('00:16');
+    await page.locator('#error').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#error').textContent(), 'Сервер не ответил, ответ не сохранён — нажмите «Ответить» ещё раз');
+    assert.equal(await page.locator('#submit').isEnabled(), true);
+    await expectReport(reports, 'timeout');
+    assert.ok(reports[0].ms >= 15000);
+});
+
+test('Тренировка: сервер сохранил ответ, но страница его не получила — повтор возвращает сохранённый результат', async (t) => {
+    const { page, userId } = await pageFor(t);
+    const q = await training(page);
+    await page.route('**/api/client-errors', (route) => route.fulfill({ status: 204 }));
+    await page.route('**/api/answers', async (route) => {
+        await route.fetch();
+        await route.abort('failed');
+    }, { times: 1 });
+    await choose(page, q.correct_answer);
+    await page.locator('#submit').click();
+    await page.locator('#error').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#options input:enabled').count(), 0);
+    await page.locator('#submit').click();
+    await page.locator('#result').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#result-status').textContent(), 'Верно');
+    assert.equal(await page.locator('#error').isVisible(), false);
+    assert.equal((await query('SELECT count(*)::int AS n FROM answer_log WHERE user_id=$1', [userId])).rows[0].n, 1);
+});
+
+test('Тренировка: после потери подтверждения ошибка 500 при повторе не открывает выбор', async (t) => {
+    const { page, userId } = await pageFor(t);
+    const q = await training(page);
+    await page.route('**/api/client-errors', (route) => route.fulfill({ status: 204 }));
+    let attempt = 0;
+    await page.route('**/api/answers', async (route) => {
+        attempt += 1;
+        if (attempt === 1) {
+            await route.fetch();
+            await route.abort('failed');
+        } else if (attempt === 2) {
+            await route.fulfill(failure);
+        } else {
+            await route.continue();
+        }
+    });
+    await choose(page, q.correct_answer);
+    await page.locator('#submit').click();
+    await page.locator('#error').waitFor({ state: 'visible' });
+    await page.locator('#submit').click();
+    await page.waitForFunction(() => document.getElementById('error').textContent === 'Проверочный сбой сети');
+    // Сервер ответил ошибкой, но первая попытка могла сохраниться: выбор по-прежнему заблокирован.
+    assert.equal(await page.locator('#options input:enabled').count(), 0);
+    await page.locator('#submit').click();
+    await page.locator('#result').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#result-status').textContent(), 'Верно');
+    assert.equal((await query('SELECT count(*)::int AS n FROM answer_log WHERE user_id=$1', [userId])).rows[0].n, 1);
+});
+
+async function expectReport(reports, kind) {
+    for (let i = 0; i < 50 && !reports.length; i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0].kind, kind);
+    assert.equal(reports[0].path, '/api/answers');
+    assert.equal(reports[0].screen, 'question');
+    assert.ok(!('answer' in reports[0]) && !('email' in reports[0]));
+}
+
 for (const scenario of ['другая тема', 'тот же вопрос', 'ошибка старого запроса']) {
     test('Тренировка: запоздалый ответ не меняет новый экран — ' + scenario, async (t) => {
         const { page } = await pageFor(t);
@@ -272,13 +381,23 @@ test('Экзамен: отказ после срока блокирует отв
 test('Экзамен: срок истекает во время отправки, отказ сохраняет блокировку и ответы', async (t) => {
     const { page } = await pageFor(t);
     await startExam(page);
+    // Срок через 10 с: он должен истечь, пока запрос ждёт ответа, но раньше,
+    // чем страница сама прервёт запрос по ограничению в 15 с.
+    await page.evaluate(() => {
+        const key = Object.keys(localStorage).find((k) => k.startsWith('pg16-exam:'));
+        const data = JSON.parse(localStorage.getItem(key));
+        data.deadline = Date.now() + 10000;
+        localStorage.setItem(key, JSON.stringify(data));
+    });
+    await page.reload();
+    await page.locator('#exam-resume-continue').click();
     const original = await savedExam(page);
     const held = await holdRequest(t, page, '**/api/exam/check', failure);
     await page.locator('#exam-finish').click();
     await held.reached;
     assert.equal(await page.locator('#exam-options input:enabled').count(), 0);
     assert.equal(await page.locator('#exam-finish').isDisabled(), true);
-    await page.clock.fastForward('30:01');
+    await page.clock.fastForward('00:11');
     await held.release();
     assert.equal(await page.locator('#exam-timer').textContent(), '00:00');
     assert.equal(await page.locator('#exam-options input:enabled').count(), 0);

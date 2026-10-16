@@ -39,18 +39,106 @@
         box.hidden = !message;
     }
 
+    // Сколько страница ждёт ответа сервера. На сервере ограничения меньше: БД 5 с, nginx 60 с.
+    const API_TIMEOUT_MS = 15000;
+    const ANSWER_NOT_SAVED = 'Сервер не ответил, ответ не сохранён — нажмите «Ответить» ещё раз';
+    // Сбои без подтверждения от нашего сервера: время вышло, сеть недоступна, ответ не в JSON.
+    const NO_RESPONSE = ['timeout', 'network', 'gateway'];
+
+    function currentView() {
+        return VIEWS.find((key) => !$(key + '-view').hidden) || '-';
+    }
+
+    // Любой запрос страницы — с ограничением времени. Тело читается целиком внутри ограничения.
+    // response === null: ответа нет (время вышло — timedOut, иначе сеть недоступна или тело оборвалось).
+    async function timedFetch(url, options) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+        try {
+            const response = await fetch(url, Object.assign({}, options, { signal: controller.signal }));
+            const body = await response.text();
+            return { response, body, timedOut: false };
+        } catch (err) {
+            return { response: null, body: null, timedOut: controller.signal.aborted };
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    // Отчёт о сбое в журнал сервера: только вид сбоя, путь, код, длительность, экран и место ошибки.
+    // Свободного текста нет. Не больше 10 отчётов за загрузку страницы; сбой отправки отчёта не порождает новый.
+    let reportsLeft = 10;
+    function reportClientError(report) {
+        if (reportsLeft <= 0) return;
+        reportsLeft -= 1;
+        const body = Object.assign({ screen: currentView() }, report);
+        if (body.path) body.path = String(body.path).split('?')[0];
+        timedFetch('/api/client-errors', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            keepalive: true,
+        });
+    }
+
+    window.addEventListener('error', (event) => {
+        reportClientError({ kind: 'js', source: String(event.filename || '').split('/').pop(), line: event.lineno || 0 });
+    });
+    window.addEventListener('unhandledrejection', (event) => {
+        // Пустое сообщение — намеренный отказ после перехода ко входу (см. api), это не сбой.
+        if (event.reason instanceof Error && event.reason.message === '') return;
+        reportClientError({ kind: 'js' });
+    });
+
+    function requestFailed(kind, message) {
+        const err = new Error(message || 'Ошибка запроса');
+        err.kind = kind;
+        return err;
+    }
+
     async function api(url, options) {
-        const response = await fetch(url, options);
-        const data = await response.json().catch(() => null);
+        const started = Date.now();
+        const { response, body, timedOut } = await timedFetch(url, options);
+        const ms = Date.now() - started;
+        if (!response) {
+            const kind = timedOut ? 'timeout' : 'network';
+            reportClientError({ kind, path: url, status: 0, ms });
+            throw requestFailed(kind);
+        }
         if (response.status === 401) {
             // Сеанс истёк или его нет: показать вход без сообщения об ошибке.
             showLogin();
             throw new Error('');
         }
+        let data = null;
+        try {
+            data = JSON.parse(body);
+        } catch (err) {
+            // не JSON: обрабатывается ниже
+        }
+        if (!data || typeof data !== 'object') {
+            // Не JSON — ответ шлюза (например, nginx при 502–504) или испорченное тело, даже при коде 200.
+            // Подтверждения от нашего сервера нет.
+            reportClientError({ kind: 'gateway', path: url, status: response.status, ms });
+            throw requestFailed('gateway');
+        }
         if (!response.ok) {
-            throw new Error((data && data.error) || 'Ошибка запроса');
+            const kind = response.status >= 500 ? 'server' : 'api';
+            if (kind === 'server') reportClientError({ kind, path: url, status: response.status, ms });
+            throw requestFailed(kind, data.error);
         }
         return data;
+    }
+
+    // Текущий пользователь или null; сбой этой проверки не мешает показать экран входа.
+    async function currentUser() {
+        const { response, body } = await timedFetch('/api/me');
+        if (!response || !response.ok) return null;
+        try {
+            return JSON.parse(body);
+        } catch (err) {
+            return null;
+        }
     }
 
     function postJson(url, payload) {
@@ -191,7 +279,7 @@
         try {
             const target = await postJson('/api/auth/peek', { token: loginToken });
             $('login-confirm-text').textContent = 'Вход как ' + target.email;
-            const current = await fetch('/api/me').then((r) => (r.ok ? r.json() : null)).catch(() => null);
+            const current = await currentUser();
             if (current && current.email !== target.email) {
                 $('login-confirm-warning').textContent = 'Сейчас вы вошли как ' + current.email + '. Войти в другой аккаунт?';
                 $('login-confirm-warning').hidden = false;
@@ -200,7 +288,7 @@
         } catch (err) {
             loginToken = null;
             const message = err.message || 'Ссылка недействительна или устарела';
-            const current = await fetch('/api/me').then((r) => (r.ok ? r.json() : null)).catch(() => null);
+            const current = await currentUser();
             if (current) startApp(current);
             else showLogin();
             showError(message);
@@ -456,6 +544,11 @@
         showQuestion();
     }
 
+    // Ответы без подтверждения сервера: ключ «порция:вопрос» → отправленный ответ. Сервер мог его сохранить,
+    // поэтому выбор остаётся заблокированным до успешного ответа — при повторах и при возврате к вопросу.
+    const unconfirmedAnswers = new Map();
+    const answerKeyOf = (question) => (trainingBatchId || '-') + ':' + question.id;
+
     function showQuestion() {
         if (index >= questions.length) {
             $('finish-text').textContent = finishText;
@@ -478,6 +571,13 @@
                 key, LETTERS[position], question.options[key], 'answer', isMulti(question) ? 'checkbox' : 'radio'
             ));
         });
+        const pending = unconfirmedAnswers.get(answerKeyOf(question));
+        if (pending) {
+            options.querySelectorAll('input').forEach((input) => {
+                input.checked = pending.includes(input.value);
+                input.disabled = true;
+            });
+        }
     }
 
     async function submitAnswer(event) {
@@ -493,12 +593,14 @@
         }
         $('submit').disabled = true;
         document.querySelectorAll('#options input').forEach((input) => { input.disabled = true; });
+        const answerKey = answerKeyOf(question);
         try {
             const result = await api('/api/answers', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ question_id: question.id, answer, training_batch_id: trainingBatchId }),
             });
+            unconfirmedAnswers.delete(answerKey);
             // Даже повторное открытие того же вопроса — уже другой экран.
             if (revision !== viewRevision) return;
             const rightKeys = result.correct_answer.split('');
@@ -523,10 +625,18 @@
             $('result').hidden = false;
             $('submit').disabled = true;
         } catch (err) {
+            // Состояние ответа фиксируется независимо от текущего экрана; проверка экрана — только для DOM.
+            const unconfirmed = NO_RESPONSE.includes(err.kind);
+            if (unconfirmed) unconfirmedAnswers.set(answerKey, answer);
             if (revision !== viewRevision) return;
             $('submit').disabled = false;
-            document.querySelectorAll('#options input').forEach((input) => { input.disabled = false; });
-            showError(err.message);
+            // Ответ не подтверждён: сервер мог его уже сохранить. Выбор не меняется, и «Ответить»
+            // повторяет тот же ответ — сервер вернёт сохранённый результат. Выбор можно изменить,
+            // только если ни одна попытка не осталась без подтверждения.
+            if (!unconfirmedAnswers.has(answerKey)) {
+                document.querySelectorAll('#options input').forEach((input) => { input.disabled = false; });
+            }
+            showError(unconfirmed ? ANSWER_NOT_SAVED : err.message);
         }
     }
 
@@ -1042,13 +1152,18 @@
         showError('');
         let text;
         try {
-            const response = await fetch('/api/materials/interview');
-            if (response.status === 401) {
+            const started = Date.now();
+            const { response, body, timedOut } = await timedFetch('/api/materials/interview');
+            if (response && response.status === 401) {
                 showLogin();
                 return;
             }
-            if (!response.ok) throw new Error('Материал недоступен');
-            text = await response.text();
+            if (!response || response.status >= 500) {
+                reportClientError({ kind: !response ? (timedOut ? 'timeout' : 'network') : 'server',
+                    path: '/api/materials/interview', status: response ? response.status : 0, ms: Date.now() - started });
+            }
+            if (!response || !response.ok) throw new Error('Материал недоступен');
+            text = body;
         } catch (err) {
             showError(err.message);
             return;
