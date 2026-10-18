@@ -871,6 +871,21 @@ test('Материал для собеседования доступен тол
     }
 });
 
+test('Материал «Память процесса» доступен только после входа, чужие имена отклоняются', async () => {
+    assert.equal((await fetch(base + '/api/materials/memory')).status, 401);
+    const response = await fetch(base + '/api/materials/memory', { headers: { Cookie: cookieA } });
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type'), /text\/markdown/);
+    const text = await response.text();
+    assert.match(text, /^# Память процесса/);
+    for (let n = 1; n <= 13; n += 1) assert.ok(text.includes(`\n## ${n}. `), `в материале есть раздел ${n}`);
+    for (const name of ['nope', '..%2FREADME', 'INTERVIEW', 'constructor', '__proto__']) {
+        const other = await fetch(base + '/api/materials/' + name, { headers: { Cookie: cookieA } });
+        assert.equal(other.status, 404, name);
+        assert.deepEqual(await other.json(), { error: 'Материал не найден' });
+    }
+});
+
 test('Защитные заголовки есть, X-Powered-By не отдаётся', async () => {
     for (const path of ['/', '/api/me']) {
         const response = await fetch(base + path);

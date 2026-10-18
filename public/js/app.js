@@ -515,12 +515,13 @@
                 button.appendChild(count);
                 button.addEventListener('click', () => (checkMode ? startOptionCheck(category) : startCategory(category)));
                 item.appendChild(button);
-                if (category.name.startsWith('17.')) {
+                const materialName = category.name.startsWith('17.') ? 'interview' : category.name.startsWith('18.') ? 'memory' : null;
+                if (materialName) {
                     const link = document.createElement('button');
                     link.type = 'button';
                     link.className = 'link card-link';
                     link.textContent = 'Материал для изучения';
-                    link.addEventListener('click', openMaterial);
+                    link.addEventListener('click', () => openMaterial(materialName));
                     item.appendChild(link);
                 }
                 list.appendChild(item);
@@ -1155,19 +1156,19 @@
         flushParagraph();
     }
 
-    async function openMaterial() {
+    async function openMaterial(name) {
         showError('');
         let text;
         try {
             const started = Date.now();
-            const { response, body, timedOut } = await timedFetch('/api/materials/interview');
+            const { response, body, timedOut } = await timedFetch('/api/materials/' + name);
             if (response && response.status === 401) {
                 showLogin();
                 return;
             }
             if (!response || response.status >= 500) {
                 reportClientError({ kind: !response ? (timedOut ? 'timeout' : 'network') : 'server',
-                    path: '/api/materials/interview', status: response ? response.status : 0, ms: Date.now() - started });
+                    path: '/api/materials/' + name, status: response ? response.status : 0, ms: Date.now() - started });
             }
             if (!response || !response.ok) throw new Error('Материал недоступен');
             text = body;

@@ -7,8 +7,13 @@
  * -O0 отключает оптимизацию: иначе компилятор может убрать рекурсию и переменные,
  * и опыт со стеком ничего не покажет.
  * Адреса при каждом запуске разные (система нарочно перемешивает их ради защиты),
- * но порядок областей сохраняется.
+ * но порядок областей обычно тот же.
+ *
+ * Это лабораторный опыт, а не просмотр: программа расходует около 100 МБ памяти
+ * и намеренно вызывает переполнение стека в дочернем процессе. Запускайте её
+ * обычным пользователем в учебной среде, а не на рабочем сервере.
  */
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,7 +24,8 @@
 
 int global_counter = 42;            /* глобальная переменная: область данных */
 
-/* Сколько оперативной памяти процесс занимал в самый загруженный момент, МБ. */
+/* Максимальный RSS с начала работы, МБ: сколько оперативной памяти процесс занимал в самый загруженный момент.
+   Это максимум, а не текущее значение: после free он не уменьшается. */
 static double max_rss_mb(void)
 {
     struct rusage usage;
@@ -84,17 +90,19 @@ int main(void)
     /* ── 3. Куча: память сначала только резервируется ─────────────────────── */
     printf("\n3. КУЧА\n");
     size_t size = 100 * 1024 * 1024;
-    printf("   в начале:                          занято в RAM %.0f МБ\n", max_rss_mb());
+    printf("   (ниже — максимальный RSS с начала работы)\n");
+    printf("   в начале:                          максимальный RSS %.0f МБ\n", max_rss_mb());
     char *big = malloc(size);
     if (big == NULL) {
         perror("malloc");
         return 1;
     }
-    printf("   malloc(100 МБ), память не трогали: занято в RAM %.0f МБ — выданы только адреса\n", max_rss_mb());
+    printf("   malloc(100 МБ), память не трогали: максимальный RSS %.0f МБ — выданы только адреса\n", max_rss_mb());
     memset(big, 1, size);
-    printf("   записали во все 100 МБ:            занято в RAM %.0f МБ — страницы появились при обращении\n", max_rss_mb());
+    printf("   записали во все 100 МБ:            максимальный RSS %.0f МБ — страницы появились при обращении\n", max_rss_mb());
     free(big);
-    printf("   free(big): память возвращена. Забыть free — это и есть утечка.\n");
+    printf("   free(big): память возвращена. Забыть free — это и есть утечка.\n"
+           "   Максимальный RSS после free не уменьшится: это максимум за всё время работы.\n");
 
     /* ── 4. Время жизни ───────────────────────────────────────────────────── */
     printf("\n4. ВРЕМЯ ЖИЗНИ\n"
@@ -104,20 +112,41 @@ int main(void)
     /* ── 5. Переполнение стека — в отдельном процессе, чтобы пример не упал ─── */
     printf("\n5. ПЕРЕПОЛНЕНИЕ СТЕКА\n");
     struct rlimit stack_limit;
-    getrlimit(RLIMIT_STACK, &stack_limit);
+    if (getrlimit(RLIMIT_STACK, &stack_limit) != 0) {
+        perror("getrlimit");
+        return 1;
+    }
+    if (stack_limit.rlim_cur == RLIM_INFINITY) {
+        printf("   лимит стека не ограничен (ulimit -s unlimited): опыт пропущен,\n"
+               "   иначе рекурсия израсходовала бы всю доступную память\n");
+        return 0;
+    }
     printf("   лимит стека: %ld КБ\n", (long) (stack_limit.rlim_cur / 1024));
     fflush(stdout);
     pid_t child = fork();                        /* копия процесса: о fork — в следующей теме */
+    if (child < 0) {
+        perror("fork");
+        return 1;
+    }
     if (child == 0) {
         endless();
         _exit(0);
     }
     int status;
-    waitpid(child, &status, 0);
+    pid_t done;
+    do
+        done = waitpid(child, &status, 0);
+    while (done < 0 && errno == EINTR);          /* ожидание прервал сигнал — ждём снова */
+    if (done < 0) {
+        perror("waitpid");
+        return 1;
+    }
     if (WIFSIGNALED(status))
-        printf("\n   дочерний процесс аварийно завершён сигналом %d (%s): стек кончился\n",
-               WTERMSIG(status), strsignal(WTERMSIG(status)));
-    printf("   PostgreSQL не доводит до этого: параметр max_stack_depth прерывает запрос раньше\n"
-           "   с ошибкой «stack depth limit exceeded».\n");
+        printf("\n   дочерний процесс завершён сигналом %d (%s)%s\n", WTERMSIG(status), strsignal(WTERMSIG(status)),
+               WTERMSIG(status) == SIGSEGV ? ": ожидаемое переполнение стека" : ": неожиданный для этого опыта сигнал, причину нужно выяснять отдельно");
+    else
+        printf("\n   дочерний процесс завершился сам с кодом %d\n", WEXITSTATUS(status));
+    printf("   PostgreSQL в проверяемых местах не доводит до этого: параметр max_stack_depth\n"
+           "   обычно прерывает запрос раньше с ошибкой «stack depth limit exceeded».\n");
     return 0;
 }
