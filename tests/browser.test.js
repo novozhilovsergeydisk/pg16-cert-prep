@@ -287,6 +287,72 @@ test('Тренировка: после потери подтверждения �
     assert.equal((await query('SELECT count(*)::int AS n FROM answer_log WHERE user_id=$1', [userId])).rows[0].n, 1);
 });
 
+// Режим «Подходит или нет»: вся порция на узком экране.
+async function startCheck(page, topic = '01.') {
+    await page.locator('#mode-check').click();
+    assert.equal(await page.locator('#mode-check').getAttribute('aria-pressed'), 'true');
+    await page.locator('#categories .card').filter({ hasText: topic }).click();
+    await page.locator('#option-check-view').waitFor({ state: 'visible' });
+}
+
+test('Подходит или нет: порция из 16 карточек, ответы, итог и обычный режим по умолчанию', async (t) => {
+    const { page, userId } = await pageFor(t, 320);
+    assert.equal(await page.locator('#mode-train').getAttribute('aria-pressed'), 'true');
+    await startCheck(page);
+    assert.equal(await page.locator('#check-progress').textContent(), 'Карточка 1 из 16');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 320);
+    let right = 0;
+    for (let i = 1; i <= 16; i += 1) {
+        assert.equal(await page.locator('#check-progress').textContent(), 'Карточка ' + i + ' из 16');
+        assert.equal(await page.locator('#check-result').isVisible(), false);
+        // «Подходит» на каждой карточке верно ровно на тех, где показан верный вариант.
+        await page.locator('#check-yes').click();
+        await page.locator('#check-result').waitFor({ state: 'visible' });
+        const status = await page.locator('#check-status').textContent();
+        assert.ok(['Верно', 'Неверно'].includes(status));
+        if (status === 'Верно') right += 1;
+        const fits = await page.locator('#check-fits').textContent();
+        assert.equal(fits === 'Этот вариант подходит как ответ.', status === 'Верно');
+        assert.ok((await page.locator('#check-explanation').textContent()).length > 0);
+        // Ответ уже сохранён: менять его нельзя, обе кнопки неактивны до следующей карточки.
+        assert.equal(await page.locator('#check-yes').isDisabled() && await page.locator('#check-no').isDisabled(), true);
+        await page.locator('#check-next').click();
+    }
+    // Ответ «Подходит» на всех карточках верен ровно на верных вариантах: их в порции 8.
+    assert.equal(right, 8);
+    await page.locator('#finish-view').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#finish-text').textContent(), 'Порция пройдена: верно 8 из 16.');
+    assert.equal((await query('SELECT count(*)::int AS n FROM option_check_answers WHERE user_id=$1', [userId])).rows[0].n, 16);
+    assert.equal((await query('SELECT count(*)::int AS n FROM answer_log WHERE user_id=$1', [userId])).rows[0].n, 0);
+    await page.locator('#finish-back').click();
+    await page.locator('#categories .card').first().waitFor();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 320);
+});
+
+test('Подходит или нет: после потери подтверждения доступна только отправленная кнопка', async (t) => {
+    const { page } = await pageFor(t);
+    await page.route('**/api/client-errors', (route) => route.fulfill({ status: 204 }));
+    await startCheck(page);
+    let attempt = 0;
+    await page.route('**/api/option-checks', async (route) => {
+        attempt += 1;
+        if (attempt === 1) {
+            await route.fetch();
+            await route.abort('failed');
+        } else {
+            await route.continue();
+        }
+    });
+    await page.locator('#check-no').click();
+    await page.locator('#error').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#error').textContent(), 'Сервер не ответил, ответ не сохранён — нажмите «Ответить» ещё раз');
+    assert.equal(await page.locator('#check-no').isEnabled(), true);
+    assert.equal(await page.locator('#check-yes').isDisabled(), true);
+    await page.locator('#check-no').click();
+    await page.locator('#check-result').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#error').isVisible(), false);
+});
+
 async function expectReport(reports, kind) {
     for (let i = 0; i < 50 && !reports.length; i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(reports.length, 1);

@@ -66,6 +66,10 @@
                 <button id="open-stats" class="btn-secondary" type="button">Моя статистика</button>
                 <button id="open-admin" class="btn-secondary" type="button" hidden>Статистика пользователей</button>
             </div>
+            <div class="mode-switch" role="group" aria-label="Режим">
+                <button id="mode-train" class="mode-btn active" type="button" aria-pressed="true">Тренировка</button>
+                <button id="mode-check" class="mode-btn" type="button" aria-pressed="false">Подходит или нет</button>
+            </div>
             <h2>Категории</h2>
             <ul id="categories" class="cards"></ul>
         </section>
@@ -88,6 +92,26 @@
             </div>
         </section>
 
+        <section id="option-check-view" hidden>
+            <button id="check-back" class="btn-secondary" type="button">К списку категорий</button>
+            <h2 id="check-category-name"></h2>
+            <p id="check-progress" class="progress"></p>
+            <div id="check-question-text" class="question"></div>
+            <p id="check-hint" class="hint" hidden>У вопроса может быть несколько правильных ответов: это один из них?</p>
+            <p class="check-label">Подходит ли этот вариант как ответ?</p>
+            <div id="check-option" class="check-option"></div>
+            <div class="actions">
+                <button id="check-yes" class="btn" type="button">Подходит</button>
+                <button id="check-no" class="btn-secondary" type="button">Не подходит</button>
+            </div>
+            <div id="check-result" class="result" hidden>
+                <p id="check-status" class="status"></p>
+                <p id="check-fits"></p>
+                <p id="check-note" class="explanation"></p>
+                <p id="check-explanation" class="explanation"></p>
+                <button id="check-next" class="btn" type="button">Далее</button>
+            </div>
+        </section>
         <section id="finish-view" hidden>
             <p id="finish-text"></p>
             <button id="finish-back" class="btn" type="button">К списку категорий</button>

@@ -11,6 +11,7 @@ const {
 const { requireAuth } = require('../middleware/auth');
 const { answerLimit, examCheckLimit } = require('../middleware/rateLimit');
 const { createTrainingBatch, getTrainingBatches, getTrainingBatch } = require('../controllers/trainingController');
+const { createOptionCheckBatch, postOptionCheck } = require('../controllers/optionCheckController');
 
 const router = express.Router();
 
@@ -22,6 +23,8 @@ router.post('/training/batches', answerLimit, createTrainingBatch);
 router.get('/training/batches', getTrainingBatches);
 router.get('/training/batches/:id', getTrainingBatch);
 router.post('/answers', answerLimit, postAnswer);
+router.post('/option-checks/batches', answerLimit, createOptionCheckBatch);
+router.post('/option-checks', answerLimit, postOptionCheck);
 router.get('/exam', getExam);
 router.post('/exam/check', examCheckLimit, postExamCheck);
 router.get('/mistakes', getMistakes);

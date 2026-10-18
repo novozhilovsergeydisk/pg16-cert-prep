@@ -6,7 +6,9 @@ process.env.NODE_ENV = 'test';
 const crypto = require('crypto');
 const app = require('../server');
 const pool = require('../src/config/db');
-const { questions: source } = require('../scripts/questions/035_process_memory');
+const { questions: source035 } = require('../scripts/questions/035_process_memory');
+const { questions: source038 } = require('../scripts/questions/038_stack_heap_basics');
+const source = [...source035, ...source038];
 
 let server;
 let base;
@@ -43,11 +45,11 @@ after(async () => {
     await pool.end();
 });
 
-test('Раздел 18: создан вне экзамена, 30 вопросов из исходника, пояснения ко всем вариантам', async () => {
+test('Раздел 18: создан вне экзамена, 33 вопроса из исходников (30 + 3 о стеке и куче), пояснения ко всем вариантам', async () => {
     assert.ok(category, 'Нужны миграции 034 и 035');
     assert.equal(category.in_exam, false);
     const { rows } = await pool.query('SELECT question_text, options, correct_answer, option_notes FROM questions WHERE category_id = $1', [category.id]);
-    assert.equal(rows.length, 30);
+    assert.equal(rows.length, 33);
     assert.deepEqual(rows.map((q) => q.question_text).sort(), source.map((q) => q.q).sort());
     for (const q of rows) {
         assert.deepEqual(Object.keys(q.option_notes).sort(), Object.keys(q.options).sort());
@@ -60,7 +62,7 @@ test('Раздел 18: в списке тем отмечен как вне эк�
     assert.equal(status, 200);
     const item = body.find((c) => c.id === category.id);
     assert.equal(item.in_exam, false);
-    assert.equal(item.question_count, 30);
+    assert.equal(item.question_count, 33);
 });
 
 test('Раздел 18: в экзамен по умолчанию не попадает, при явном выборе — попадает', async () => {
@@ -73,4 +75,34 @@ test('Раздел 18: в экзамен по умолчанию не попад
     assert.equal(chosen.body.length, 30);
     assert.ok(chosen.body.every((q) => ids.has(q.id)));
     assert.ok(chosen.body.every((q) => !('correct_answer' in q) && !('option_notes' in q)));
+});
+
+test('Раздел 18: уточнения миграции 036 применены, прежних формулировок нет, ключи не тронуты', async () => {
+    const { fixes } = require('../scripts/questions/036_process_memory_fixes');
+    assert.equal(fixes.length, 10);
+    const texts = new Set(source.map((q) => q.q));
+    for (const fix of fixes) {
+        const questionText = fix.kind === 'question' ? fix.new : fix.q;
+        assert.ok(texts.has(questionText), 'вопрос из исправления не найден в исходнике');
+        const { rows } = await pool.query('SELECT question_text, options, explanation, option_notes FROM questions WHERE question_text = $1', [questionText]);
+        assert.equal(rows.length, 1, 'Нужна миграция 036');
+        const q = rows[0];
+        if (fix.kind === 'explanation') assert.equal(q.explanation, fix.new);
+        if (fix.kind === 'option') {
+            const key = Object.keys(q.options).find((k) => q.options[k] === (fix.newOpt || fix.opt));
+            assert.ok(key, 'вариант не найден: ' + (fix.newOpt || fix.opt).slice(0, 50));
+            if (fix.newNote) assert.equal(q.option_notes[key], fix.newNote);
+            assert.notEqual(q.options[key], fix.newOpt ? fix.opt : undefined);
+        }
+    }
+    // Исходник и база согласованы: у каждого варианта исходника есть такой же текст и пояснение в базе.
+    for (const item of source) {
+        const q = (await pool.query('SELECT options, option_notes, explanation FROM questions WHERE question_text = $1', [item.q])).rows[0];
+        assert.equal(q.explanation, item.e);
+        for (const [text, , note] of item.opts) {
+            const key = Object.keys(q.options).find((k) => q.options[k] === text);
+            assert.ok(key, 'нет варианта: ' + text.slice(0, 50));
+            assert.equal(q.option_notes[key], note);
+        }
+    }
 });

@@ -2,7 +2,8 @@
     const $ = (id) => document.getElementById(id);
 
     const VIEWS = ['login', 'login-sent', 'login-confirm', 'privacy', 'categories', 'question', 'finish',
-        'exam-setup', 'exam', 'exam-result', 'history', 'training-history', 'training-batch', 'stats', 'admin', 'admin-user', 'material'];
+        'exam-setup', 'exam', 'exam-result', 'history', 'training-history', 'training-batch', 'stats', 'admin', 'admin-user', 'material',
+        'option-check'];
     const EXAM_COUNTS = [20, 30, 50];
     const EXAM_DEFAULT_COUNT = 30;
     const SECONDS_PER_QUESTION = 90;
@@ -16,6 +17,12 @@
     let categories = [];
     let questions = [];
     let trainingBatchId = null;
+    // Режим «Подходит или нет»: порция карточек, номер текущей, счёт и ответы без подтверждения сервера.
+    let checkMode = false;
+    let checkBatch = null;
+    let checkIndex = 0;
+    let checkScore = 0;
+    const unconfirmedChecks = new Map();
     let trainingHistoryBefore = null;
     let index = 0;
     let exam = null;
@@ -506,7 +513,7 @@
                     : questionsLabel(category.question_count);
                 button.appendChild(name);
                 button.appendChild(count);
-                button.addEventListener('click', () => startCategory(category));
+                button.addEventListener('click', () => (checkMode ? startOptionCheck(category) : startCategory(category)));
                 item.appendChild(button);
                 if (category.name.startsWith('17.')) {
                     const link = document.createElement('button');
@@ -1340,6 +1347,100 @@
         });
         show('exam-result');
     }
+
+    // ── Режим «Подходит или нет» ───────────────────────────────────────────
+    function setMode(check) {
+        checkMode = check;
+        $('mode-train').classList.toggle('active', !check);
+        $('mode-check').classList.toggle('active', check);
+        $('mode-train').setAttribute('aria-pressed', String(!check));
+        $('mode-check').setAttribute('aria-pressed', String(check));
+    }
+
+    async function startOptionCheck(category) {
+        showError('');
+        const revision = viewRevision;
+        try {
+            const batch = await postJson('/api/option-checks/batches', { category_id: category.id });
+            if (revision !== viewRevision) return;
+            checkBatch = batch;
+        } catch (err) {
+            if (revision !== viewRevision) return;
+            showError(err.message);
+            return;
+        }
+        if (!checkBatch.cards.length) {
+            showError('В этом разделе нет вопросов');
+            return;
+        }
+        $('check-category-name').textContent = checkBatch.category_name;
+        checkIndex = 0;
+        checkScore = 0;
+        showCheckCard();
+    }
+
+    function showCheckCard() {
+        if (checkIndex >= checkBatch.cards.length) {
+            $('finish-text').textContent = 'Порция пройдена: верно ' + checkScore + ' из ' + checkBatch.cards.length + '.';
+            show('finish');
+            return;
+        }
+        const card = checkBatch.cards[checkIndex];
+        show('option-check');
+        $('check-progress').textContent = 'Карточка ' + (checkIndex + 1) + ' из ' + checkBatch.cards.length;
+        renderRich($('check-question-text'), card.question_text);
+        $('check-hint').hidden = !card.multi;
+        const option = $('check-option');
+        option.className = 'check-option';
+        renderRich(option, card.option_text);
+        $('check-result').hidden = true;
+        // Ответ без подтверждения: сервер мог его сохранить, поэтому доступна только отправленная кнопка.
+        const pending = unconfirmedChecks.get(checkBatch.id + ':' + card.question_id);
+        $('check-yes').disabled = pending === false;
+        $('check-no').disabled = pending === true;
+    }
+
+    async function submitOptionCheck(fits) {
+        if ($('check-yes').disabled && $('check-no').disabled) return;
+        showError('');
+        const revision = viewRevision;
+        const card = checkBatch.cards[checkIndex];
+        const key = checkBatch.id + ':' + card.question_id;
+        $('check-yes').disabled = true;
+        $('check-no').disabled = true;
+        try {
+            const result = await postJson('/api/option-checks', { batch_id: checkBatch.id, question_id: card.question_id, fits });
+            unconfirmedChecks.delete(key);
+            if (revision !== viewRevision) return;
+            if (result.right) checkScore += 1;
+            const status = $('check-status');
+            status.textContent = result.right ? 'Верно' : 'Неверно';
+            status.className = 'status ' + (result.right ? 'ok' : 'bad');
+            $('check-fits').textContent = result.option_fits ? 'Этот вариант подходит как ответ.' : 'Этот вариант не подходит как ответ.';
+            $('check-note').textContent = result.option_note || '';
+            $('check-explanation').textContent = result.explanation || '';
+            $('check-option').className = 'check-option ' + (result.right ? 'right' : 'wrong');
+            $('check-result').hidden = false;
+        } catch (err) {
+            const unconfirmed = NO_RESPONSE.includes(err.kind);
+            if (unconfirmed) unconfirmedChecks.set(key, fits);
+            if (revision !== viewRevision) return;
+            const pending = unconfirmedChecks.get(key);
+            $('check-yes').disabled = pending === false;
+            $('check-no').disabled = pending === true;
+            showError(unconfirmed ? ANSWER_NOT_SAVED : err.message);
+        }
+    }
+
+    $('mode-train').addEventListener('click', () => setMode(false));
+    $('mode-check').addEventListener('click', () => setMode(true));
+    $('check-yes').addEventListener('click', () => submitOptionCheck(true));
+    $('check-no').addEventListener('click', () => submitOptionCheck(false));
+    $('check-next').addEventListener('click', () => {
+        checkIndex += 1;
+        showCheckCard();
+    });
+    $('check-back').addEventListener('click', loadCategories);
 
     $('answer-form').addEventListener('submit', submitAnswer);
     $('next').addEventListener('click', () => {
