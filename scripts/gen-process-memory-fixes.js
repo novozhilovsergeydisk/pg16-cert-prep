@@ -3,7 +3,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const dataFile = path.join(__dirname, 'questions', '036_process_memory_fixes.js');
+// Без аргумента — исправления раздела 18 (036); иначе имя файла данных в scripts/questions без .js, например 039_explanation_style.
+const dataFile = path.join(__dirname, 'questions', (process.argv[2] || '036_process_memory_fixes') + '.js');
 const data = require(dataFile);
 const lit = (text) => (text === undefined || text === null ? 'NULL' : "'" + String(text).replace(/'/g, "''") + "'");
 
