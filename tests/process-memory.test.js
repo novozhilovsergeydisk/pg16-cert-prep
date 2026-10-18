@@ -8,7 +8,8 @@ const app = require('../server');
 const pool = require('../src/config/db');
 const { questions: source035 } = require('../scripts/questions/035_process_memory');
 const { questions: source038 } = require('../scripts/questions/038_stack_heap_basics');
-const source = [...source035, ...source038];
+const { questions: source040 } = require('../scripts/questions/040_proc_maps');
+const source = [...source035, ...source038, ...source040];
 
 let server;
 let base;
@@ -45,11 +46,11 @@ after(async () => {
     await pool.end();
 });
 
-test('Раздел 18: создан вне экзамена, 33 вопроса из исходников (30 + 3 о стеке и куче), пояснения ко всем вариантам', async () => {
+test('Раздел 18: создан вне экзамена, 37 вопросов из исходников (30 + 3 о стеке и куче + 4 о maps), пояснения ко всем вариантам', async () => {
     assert.ok(category, 'Нужны миграции 034 и 035');
     assert.equal(category.in_exam, false);
     const { rows } = await pool.query('SELECT question_text, options, correct_answer, option_notes FROM questions WHERE category_id = $1', [category.id]);
-    assert.equal(rows.length, 33);
+    assert.equal(rows.length, 37);
     assert.deepEqual(rows.map((q) => q.question_text).sort(), source.map((q) => q.q).sort());
     for (const q of rows) {
         assert.deepEqual(Object.keys(q.option_notes).sort(), Object.keys(q.options).sort());
@@ -62,7 +63,7 @@ test('Раздел 18: в списке тем отмечен как вне эк�
     assert.equal(status, 200);
     const item = body.find((c) => c.id === category.id);
     assert.equal(item.in_exam, false);
-    assert.equal(item.question_count, 33);
+    assert.equal(item.question_count, 37);
 });
 
 test('Раздел 18: в экзамен по умолчанию не попадает, при явном выборе — попадает', async () => {
