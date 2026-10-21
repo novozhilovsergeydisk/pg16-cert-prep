@@ -908,6 +908,17 @@ test('Материал «Планировщик и EXPLAIN» доступен т
     assert.ok(!text.includes('**'), 'страница не показывает жирный шрифт');
 });
 
+test('Материал «Статусы транзакций и pg_xact» доступен только после входа', async () => {
+    assert.equal((await fetch(base + '/api/materials/xact')).status, 401);
+    const response = await fetch(base + '/api/materials/xact', { headers: { Cookie: cookieA } });
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type'), /text\/markdown/);
+    const text = await response.text();
+    assert.match(text, /^# Статусы транзакций и pg_xact/);
+    for (let n = 1; n <= 10; n += 1) assert.ok(text.includes(`\n## ${n}. `), `в материале есть раздел ${n}`);
+    assert.ok(!text.includes('**'), 'страница не показывает жирный шрифт');
+});
+
 test('Защитные заголовки есть, X-Powered-By не отдаётся', async () => {
     for (const path of ['/', '/api/me']) {
         const response = await fetch(base + path);
