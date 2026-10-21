@@ -10,7 +10,7 @@ const KINDS = new Set(['timeout', 'network', 'gateway', 'server', 'js']);
 const PATHS = new Set([
     '/api/me', '/api/auth/request', '/api/auth/peek', '/api/auth/verify', '/api/auth/verify-code', '/api/auth/logout',
     '/api/categories', '/api/questions', '/api/training/batches', '/api/training/batches/:id', '/api/answers', '/api/option-checks', '/api/option-checks/batches',
-    '/api/exam', '/api/exam/check', '/api/exam/history', '/api/mistakes', '/api/stats', '/api/materials/interview', '/api/materials/memory', '/api/materials/syscalls', '/api/materials/planner', '/api/materials/xact',
+    '/api/exam', '/api/exam/check', '/api/exam/history', '/api/mistakes', '/api/stats', '/api/materials/interview', '/api/materials/memory', '/api/materials/syscalls', '/api/materials/planner', '/api/materials/xact', '/api/materials/acid',
     '/api/admin/users', '/api/admin/users/:id', '/api/admin/hard-questions',
 ]);
 const SCREENS = new Set(['login', 'login-sent', 'login-confirm', 'privacy', 'categories', 'question', 'finish',

@@ -516,7 +516,7 @@
                 button.addEventListener('click', () => (checkMode ? startOptionCheck(category) : startCategory(category)));
                 item.appendChild(button);
                 // Материал к разделу; глава 7 материала о системных вызовах относится и к разделу 07.
-                const materialName = { '05.': 'xact', '07.': 'syscalls', '17.': 'interview', '18.': 'memory', '19.': 'syscalls', '20.': 'planner' }[category.name.slice(0, 3)] || null;
+                const materialName = { '04.': 'acid', '05.': 'xact', '07.': 'syscalls', '17.': 'interview', '18.': 'memory', '19.': 'syscalls', '20.': 'planner' }[category.name.slice(0, 3)] || null;
                 if (materialName) {
                     const link = document.createElement('button');
                     link.type = 'button';
