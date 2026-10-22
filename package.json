@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "nodemon server.js",
     "start": "node server.js",
-    "test": "node --test tests/api.test.js tests/logging.test.js tests/explanation-fixes.test.js tests/configuration-practice.test.js tests/object-basics.test.js tests/question-replacements.test.js tests/process-memory.test.js tests/syscalls.test.js tests/planner.test.js tests/option-checks.test.js",
+    "test": "node --test tests/api.test.js tests/logging.test.js tests/explanation-fixes.test.js tests/configuration-practice.test.js tests/object-basics.test.js tests/question-replacements.test.js tests/process-memory.test.js tests/syscalls.test.js tests/planner.test.js tests/query-protocol.test.js tests/option-checks.test.js",
     "test:browser": "node --test tests/browser.test.js"
   },
   "keywords": [],
