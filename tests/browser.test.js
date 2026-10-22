@@ -321,12 +321,59 @@ test('Подходит или нет: порция из 16 карточек, о�
     // Ответ «Подходит» на всех карточках верен ровно на верных вариантах: их в порции 8.
     assert.equal(right, 8);
     await page.locator('#finish-view').waitFor({ state: 'visible' });
-    assert.equal(await page.locator('#finish-text').textContent(), 'Порция пройдена: верно 8 из 16.');
+    assert.equal(await page.locator('#finish-text').textContent(), 'Порция пройдена: верно 8 из 16 (50 %).');
+    assert.equal(await page.locator('#finish-hint').isVisible(), false);
     assert.equal((await query('SELECT count(*)::int AS n FROM option_check_answers WHERE user_id=$1', [userId])).rows[0].n, 16);
     assert.equal((await query('SELECT count(*)::int AS n FROM answer_log WHERE user_id=$1', [userId])).rows[0].n, 0);
     await page.locator('#finish-back').click();
     await page.locator('#categories .card').first().waitFor();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 320);
+});
+
+test('Итог порции и работы над ошибками: верно X из N и доля в процентах', async (t) => {
+    const { page } = await pageFor(t);
+    // Два вопроса темы 01 с одним правильным ответом: на первый отвечаем верно, на второй — неверно.
+    const first = questions.find((q) => q.id === 4);
+    const pair = questions.filter((q) => q.category_id === first.category_id && q.correct_answer.length === 1).slice(0, 2);
+    const shown = [];
+    await page.route('**/api/training/batches', async (route) => {
+        const body = route.request().postDataJSON();
+        if (body.category_id !== first.category_id) return route.continue();
+        const response = await route.fetch({ postData: { ...body, limit: 200 } });
+        const batch = await response.json();
+        const picked = batch.questions.filter((item) => pair.some((q) => q.id === item.id));
+        shown.push(...picked.map((item) => questions.find((q) => q.id === item.id)));
+        await route.fulfill({ response, json: { ...batch, questions: picked } });
+    });
+    await page.locator('#categories .card').filter({ hasText: '01.' }).click();
+    // Порядок вопросов известен только после ответа перехваченного запроса: ждём первый вопрос на экране.
+    await page.locator('#question-view').waitFor({ state: 'visible' });
+    assert.equal(shown.length, 2);
+    for (const [i, q] of shown.entries()) {
+        await page.locator('#question-view').waitFor({ state: 'visible' });
+        const wrong = Object.keys(q.options).find((key) => key !== q.correct_answer);
+        await choose(page, i === 0 ? q.correct_answer : wrong);
+        await page.locator('#submit').click();
+        await page.locator('#result').waitFor({ state: 'visible' });
+        await page.locator('#next').click();
+    }
+    await page.locator('#finish-view').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#finish-text').textContent(), 'Порция пройдена: верно 1 из 2 (50 %).');
+    assert.equal(await page.locator('#finish-hint').textContent(),
+        'Откройте тему снова, чтобы получить следующую: сначала новые вопросы и те, где были ошибки.');
+
+    // В списке ошибок теперь один вопрос: отвечаем верно, итог 1 из 1, подсказки о порции нет.
+    await page.locator('#finish-back').click();
+    await page.locator('#categories .card').first().waitFor();
+    await page.locator('#open-mistakes').click();
+    await page.locator('#question-view').waitFor({ state: 'visible' });
+    await choose(page, shown[1].correct_answer);
+    await page.locator('#submit').click();
+    await page.locator('#result').waitFor({ state: 'visible' });
+    await page.locator('#next').click();
+    await page.locator('#finish-view').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#finish-text').textContent(), 'Вопросы из списка ошибок закончились: верно 1 из 1 (100 %).');
+    assert.equal(await page.locator('#finish-hint').isVisible(), false);
 });
 
 test('Подходит или нет: после потери подтверждения доступна только отправленная кнопка', async (t) => {

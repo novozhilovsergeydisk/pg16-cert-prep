@@ -8,9 +8,13 @@
     const EXAM_DEFAULT_COUNT = 30;
     const SECONDS_PER_QUESTION = 90;
     const PORTION_SIZE = 16;
-    const FINISH_PORTION = 'Порция вопросов пройдена. Откройте тему снова, чтобы получить следующую: сначала новые вопросы и те, где были ошибки.';
-    const FINISH_MISTAKES = 'Вопросы из списка ошибок закончились.';
+    const FINISH_PORTION = 'Порция пройдена';
+    const FINISH_MISTAKES = 'Вопросы из списка ошибок закончились';
+    const NEXT_PORTION_HINT = 'Откройте тему снова, чтобы получить следующую: сначала новые вопросы и те, где были ошибки.';
     let finishText = FINISH_PORTION;
+    let finishHint = NEXT_PORTION_HINT;
+    // Число верных ответов в текущей порции или в работе над ошибками.
+    let portionScore = 0;
     let progressLabel = 'Порция: вопрос';
     const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
@@ -476,8 +480,10 @@
         }
         $('category-name').textContent = 'Работа над ошибками';
         finishText = FINISH_MISTAKES;
+        finishHint = '';
         progressLabel = 'Вопрос';
         index = 0;
+        portionScore = 0;
         showQuestion();
     }
 
@@ -548,8 +554,10 @@
         }
         $('category-name').textContent = category.name;
         finishText = FINISH_PORTION;
+        finishHint = NEXT_PORTION_HINT;
         progressLabel = 'Порция: вопрос';
         index = 0;
+        portionScore = 0;
         showQuestion();
     }
 
@@ -558,10 +566,18 @@
     const unconfirmedAnswers = new Map();
     const answerKeyOf = (question) => (trainingBatchId || '-') + ':' + question.id;
 
+    // Итог порции: «верно X из N (P %)», под ним необязательная подсказка.
+    function showFinish(text, score, total, hint) {
+        $('finish-text').textContent = text + ': верно ' + score + ' из ' + total
+            + ' (' + Math.round((score * 100) / total) + ' %).';
+        $('finish-hint').textContent = hint;
+        $('finish-hint').hidden = !hint;
+        show('finish');
+    }
+
     function showQuestion() {
         if (index >= questions.length) {
-            $('finish-text').textContent = finishText;
-            show('finish');
+            showFinish(finishText, portionScore, questions.length, finishHint);
             return;
         }
         const question = questions[index];
@@ -612,6 +628,7 @@
             unconfirmedAnswers.delete(answerKey);
             // Даже повторное открытие того же вопроса — уже другой экран.
             if (revision !== viewRevision) return;
+            if (result.correct) portionScore += 1;
             const rightKeys = result.correct_answer.split('');
             document.querySelectorAll('#options .option').forEach((label) => {
                 const input = label.querySelector('input');
@@ -1383,8 +1400,7 @@
 
     function showCheckCard() {
         if (checkIndex >= checkBatch.cards.length) {
-            $('finish-text').textContent = 'Порция пройдена: верно ' + checkScore + ' из ' + checkBatch.cards.length + '.';
-            show('finish');
+            showFinish(FINISH_PORTION, checkScore, checkBatch.cards.length, '');
             return;
         }
         const card = checkBatch.cards[checkIndex];
