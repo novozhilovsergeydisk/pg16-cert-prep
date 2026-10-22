@@ -2,7 +2,8 @@ const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 process.env.DOTENV_CONFIG_QUIET = 'true';
 const pool = require('../src/config/db');
-const { questions: source } = require('../scripts/questions/051_acid');
+const withLaterFixes = require('./later-fixes');
+const source = require('../scripts/questions/051_acid').questions.map(withLaterFixes);
 after(() => pool.end());
 
 test('Темы 04, 05, 07, 08: семь вопросов к материалу ACID в экзаменационных темах, согласованы с исходником', async () => {

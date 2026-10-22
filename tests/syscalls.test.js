@@ -7,7 +7,8 @@ const crypto = require('crypto');
 const app = require('../server');
 const pool = require('../src/config/db');
 const { questions: source } = require('../scripts/questions/046_syscalls');
-const { questions: source07 } = require('../scripts/questions/047_fsync_wal');
+const withLaterFixes = require('./later-fixes');
+const source07 = require('../scripts/questions/047_fsync_wal').questions.map(withLaterFixes);
 
 let server;
 let base;
