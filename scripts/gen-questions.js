@@ -8,6 +8,7 @@
 //   <каталог>/keys.json, <каталог>/questions.json — ключи и полные данные (вне рабочей папки проверяющего).
 const fs = require('fs');
 const path = require('path');
+const { MAX_RATIO, lengthRatio, isLengthBiased, isChecked } = require('./lib/option-length');
 
 const [dataFile, ...rest] = process.argv.slice(2);
 if (!dataFile) {
@@ -33,6 +34,9 @@ for (const x of Q) {
     if (x.kind === 'code' && !x.q.includes('___')) throw new Error('нет пропуска: ' + x.q);
     for (const o of x.opts) if (!o[2] || /`/.test(o[2])) throw new Error('пояснение пусто или с обратной кавычкой: ' + x.q);
     if (/`/.test(x.e)) throw new Error('обратная кавычка в пояснении: ' + x.q);
+    if (isChecked(data.migration) && isLengthBiased(x)) {
+        throw new Error(`верный вариант длиннее неверных в ${lengthRatio(x).toFixed(2)} раза (не больше ${MAX_RATIO}): ${x.q}`);
+    }
 }
 for (const t of topics) if (cnt[t] !== data.target[t]) throw new Error(`тема ${t}: ${cnt[t]} вместо ${data.target[t]}`);
 if (new Set(Q.map((x) => x.q)).size !== Q.length) throw new Error('повтор текста вопроса');
