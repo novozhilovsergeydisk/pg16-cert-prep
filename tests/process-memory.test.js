@@ -96,12 +96,19 @@ test('Раздел 18: уточнения миграции 036 применен�
         if (fix.kind === 'explanation') assert.equal(q.explanation, fix.new);
         if (fix.kind === 'option') {
             // Более поздняя правка (062) могла ещё раз переписать этот вариант: тогда ожидается её результат.
-            const afterFix = fix.newOpt || fix.opt;
-            const later = withLaterFixes.later.find((f) => f.kind === 'option' && f.q === questionText && f.opt === afterFix);
-            const expectedText = (later && later.newOpt) || afterFix;
+            // Поздние правки (062, 064) идут цепочкой: следующая ищет вариант по тексту, который оставила предыдущая.
+            let expectedText = fix.newOpt || fix.opt;
+            let expectedNote = fix.newNote;
+            let name = fix.kind === 'question' ? fix.new : fix.q;
+            for (const f of withLaterFixes.later) {
+                if (f.kind === 'question' && f.q === name) name = f.new;
+                else if (f.kind === 'option' && f.q === name && f.opt === expectedText) {
+                    expectedText = f.newOpt || expectedText;
+                    expectedNote = f.newNote || expectedNote;
+                }
+            }
             const key = Object.keys(q.options).find((k) => q.options[k] === expectedText);
             assert.ok(key, 'вариант не найден: ' + expectedText.slice(0, 50));
-            const expectedNote = (later && later.newNote) || fix.newNote;
             if (expectedNote) assert.equal(q.option_notes[key], expectedNote);
             assert.notEqual(q.options[key], fix.newOpt ? fix.opt : undefined);
         }
