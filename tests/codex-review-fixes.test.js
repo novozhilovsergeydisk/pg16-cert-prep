@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 process.env.DOTENV_CONFIG_QUIET = 'true';
 const pool = require('../src/config/db');
 const { fixes } = require('../scripts/questions/060_codex_review_fixes');
+const { later } = require('./later-fixes');
 after(() => pool.end());
 
 // Ключи этих вопросов на момент проверки Codex: исправления 060 меняют только пояснения.
@@ -27,9 +28,18 @@ test('Исправления 060: новые пояснения в базе, п�
         if (f.kind === 'explanation') {
             assert.equal(q.explanation, f.new);
         } else {
-            const key = Object.keys(q.options).find((k) => q.options[k] === f.opt);
-            assert.ok(key, 'нет варианта: ' + f.opt.slice(0, 50));
-            assert.equal(q.option_notes[key], f.newNote);
+            // Поздние правки (например, 065) могли переписать сам вариант или его пояснение: идём по цепочке.
+            let text = f.opt;
+            let note = f.newNote;
+            for (const g of later) {
+                if (g.kind === 'option' && g.q === f.q && g.opt === text) {
+                    text = g.newOpt || text;
+                    note = g.newNote || note;
+                }
+            }
+            const key = Object.keys(q.options).find((k) => q.options[k] === text);
+            assert.ok(key, 'нет варианта: ' + text.slice(0, 50));
+            assert.equal(q.option_notes[key], note);
             assert.ok(!Object.values(q.option_notes).includes(f.oldNote));
         }
     }
