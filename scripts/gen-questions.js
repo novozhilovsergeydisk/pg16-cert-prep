@@ -8,7 +8,7 @@
 //   <каталог>/keys.json, <каталог>/questions.json — ключи и полные данные (вне рабочей папки проверяющего).
 const fs = require('fs');
 const path = require('path');
-const { MAX_RATIO, lengthRatio, isLengthBiased, isChecked } = require('./lib/option-length');
+const { MAX_RATIO, MAX_LONGEST_SHARE, lengthRatio, isLengthBiased, longestCorrectShare, absoluteOnlyInWrong, isChecked } = require('./lib/option-length');
 
 const [dataFile, ...rest] = process.argv.slice(2);
 if (!dataFile) {
@@ -36,6 +36,15 @@ for (const x of Q) {
     if (/`/.test(x.e)) throw new Error('обратная кавычка в пояснении: ' + x.q);
     if (isChecked(data.migration) && isLengthBiased(x)) {
         throw new Error(`верный вариант длиннее неверных в ${lengthRatio(x).toFixed(2)} раза (не больше ${MAX_RATIO}): ${x.q}`);
+    }
+    if (isChecked(data.migration) && absoluteOnlyInWrong(x)) {
+        throw new Error(`«только», «всегда», «никогда», «лишь» стоят лишь в неверных вариантах: ${x.q}`);
+    }
+}
+if (isChecked(data.migration)) {
+    const share = longestCorrectShare(Q);
+    if (share !== null && share > MAX_LONGEST_SHARE) {
+        throw new Error(`верный вариант самый длинный в ${Math.round(share * 100)}% вопросов с одним ответом (не больше ${Math.round(MAX_LONGEST_SHARE * 100)}%)`);
     }
 }
 for (const t of topics) if (cnt[t] !== data.target[t]) throw new Error(`тема ${t}: ${cnt[t]} вместо ${data.target[t]}`);
