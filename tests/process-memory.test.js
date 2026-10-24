@@ -11,7 +11,8 @@ const { questions: source038 } = require('../scripts/questions/038_stack_heap_ba
 const { questions: source040 } = require('../scripts/questions/040_proc_maps');
 const { questions: source041 } = require('../scripts/questions/041_postgres_processes_vm');
 const { questions: source042 } = require('../scripts/questions/042_proc_basics');
-const source = [...source035, ...source038, ...source040, ...source041, ...source042];
+const withLaterFixes = require('./later-fixes');
+const source = [...source035, ...source038, ...source040, ...source041, ...source042].map(withLaterFixes);
 
 let server;
 let base;
@@ -85,16 +86,23 @@ test('Раздел 18: уточнения миграции 036 применен�
     assert.equal(fixes.length, 10);
     const texts = new Set(source.map((q) => q.q));
     for (const fix of fixes) {
-        const questionText = fix.kind === 'question' ? fix.new : fix.q;
+        // Более поздняя правка (062) могла переименовать вопрос: в базе его итоговый текст.
+        const renamed = (name) => withLaterFixes.later.reduce((n, f) => (f.kind === 'question' && f.q === n ? f.new : n), name);
+        const questionText = renamed(fix.kind === 'question' ? fix.new : fix.q);
         assert.ok(texts.has(questionText), 'вопрос из исправления не найден в исходнике');
         const { rows } = await pool.query('SELECT question_text, options, explanation, option_notes FROM questions WHERE question_text = $1', [questionText]);
         assert.equal(rows.length, 1, 'Нужна миграция 036');
         const q = rows[0];
         if (fix.kind === 'explanation') assert.equal(q.explanation, fix.new);
         if (fix.kind === 'option') {
-            const key = Object.keys(q.options).find((k) => q.options[k] === (fix.newOpt || fix.opt));
-            assert.ok(key, 'вариант не найден: ' + (fix.newOpt || fix.opt).slice(0, 50));
-            if (fix.newNote) assert.equal(q.option_notes[key], fix.newNote);
+            // Более поздняя правка (062) могла ещё раз переписать этот вариант: тогда ожидается её результат.
+            const afterFix = fix.newOpt || fix.opt;
+            const later = withLaterFixes.later.find((f) => f.kind === 'option' && f.q === questionText && f.opt === afterFix);
+            const expectedText = (later && later.newOpt) || afterFix;
+            const key = Object.keys(q.options).find((k) => q.options[k] === expectedText);
+            assert.ok(key, 'вариант не найден: ' + expectedText.slice(0, 50));
+            const expectedNote = (later && later.newNote) || fix.newNote;
+            if (expectedNote) assert.equal(q.option_notes[key], expectedNote);
             assert.notEqual(q.options[key], fix.newOpt ? fix.opt : undefined);
         }
     }
