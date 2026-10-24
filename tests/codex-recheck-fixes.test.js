@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 process.env.DOTENV_CONFIG_QUIET = 'true';
 const pool = require('../src/config/db');
 const { fixes } = require('../scripts/questions/064_codex_recheck_fixes');
+const { later } = require('./later-fixes');
 after(() => pool.end());
 
 // Ключи этих вопросов до исправлений 064: правки меняют только тексты, ключи и число вариантов остаются прежними.
@@ -27,29 +28,42 @@ const keys = {
     "В таблице t 100 000 строк, первичный ключ по id (индекс t_pkey), индекса по val нет. В каком из этих запросов в EXPLAIN ANALYZE обычно появится Sort Method: top-N heapsort?": "A",
     "Параметр work_mem = 64MB. В непараллельном плане запроса две сортировки и одно хеш-соединение, hash_mem_multiplier по умолчанию. Чему равна сумма бюджетов памяти этих операций?": "A",
 };
-const finalName = (name) => fixes.reduce((n, f) => (f.kind === 'question' && f.q === n ? f.new : n), name);
+// Имя вопроса после 064 и всех поздних правок (066 переименовала ещё один вопрос).
+const finalName = (name) => later.reduce((n, f) => (f.kind === 'question' && f.q === n ? f.new : n), name);
+const keyNames = Object.fromEntries(Object.entries(keys).map(([name, key]) => [finalName(name), key]));
 
 test('Исправления 064: новые тексты в базе, прежних нет, ключи не тронуты', async () => {
     assert.equal(fixes.length, 32);
     assert.equal(Object.keys(keys).length, 19);
     for (const f of fixes) {
         const name = finalName(f.q);
-        assert.ok(name in keys, 'нет ключа в проверке: ' + name.slice(0, 50));
+        assert.ok(name in keyNames, 'нет ключа в проверке: ' + name.slice(0, 50));
         const { rows } = await pool.query(
             'SELECT options, correct_answer, explanation, option_notes FROM questions WHERE question_text = $1', [name]);
         assert.equal(rows.length, 1, 'Нужна миграция 064: ' + name.slice(0, 50));
         const q = rows[0];
-        assert.equal(q.correct_answer, keys[name], 'Ключ изменился: ' + name.slice(0, 50));
+        assert.equal(q.correct_answer, keyNames[name], 'Ключ изменился: ' + name.slice(0, 50));
         assert.deepEqual(Object.keys(q.option_notes).sort(), Object.keys(q.options).sort());
         if (f.kind === 'explanation') {
             assert.equal(q.explanation, f.new);
             assert.notEqual(q.explanation, f.old);
         } else if (f.kind === 'option') {
-            const key = Object.keys(q.options).find((k) => q.options[k] === (f.newOpt || f.opt));
-            assert.ok(key, 'нет варианта: ' + (f.newOpt || f.opt).slice(0, 50));
+            // Правки после 064 (066) могли ещё раз переписать вариант или пояснение: идём по цепочке от этой правки.
+            let text = f.newOpt || f.opt;
+            let note = f.newNote;
+            let n = f.q;
+            for (const g of later.slice(later.indexOf(f) + 1)) {
+                if (g.kind === 'question' && g.q === n) n = g.new;
+                else if (g.kind === 'option' && g.q === n && g.opt === text) {
+                    text = g.newOpt || text;
+                    note = g.newNote || note;
+                }
+            }
+            const key = Object.keys(q.options).find((k) => q.options[k] === text);
+            assert.ok(key, 'нет варианта: ' + text.slice(0, 50));
             if (f.newOpt) assert.notEqual(f.newOpt, f.opt);
-            if (f.newNote) {
-                assert.equal(q.option_notes[key], f.newNote);
+            if (note) {
+                assert.equal(q.option_notes[key], note);
                 assert.notEqual(q.option_notes[key], f.oldNote);
             }
         }
