@@ -348,6 +348,7 @@ test('Итог порции и работы над ошибками: верно 
     await page.locator('#categories .card').filter({ hasText: '01.' }).click();
     // Порядок вопросов известен только после ответа перехваченного запроса: ждём первый вопрос на экране.
     await page.locator('#question-view').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#question-section').isVisible(), false);
     assert.equal(shown.length, 2);
     for (const [i, q] of shown.entries()) {
         await page.locator('#question-view').waitFor({ state: 'visible' });
@@ -367,9 +368,14 @@ test('Итог порции и работы над ошибками: верно 
     await page.locator('#categories .card').first().waitFor();
     await page.locator('#open-mistakes').click();
     await page.locator('#question-view').waitFor({ state: 'visible' });
+    // В работе над ошибками над вопросом указан раздел, и после ответа он остаётся на экране; в тренировке по разделу его нет.
+    const sectionName = (await query('SELECT name FROM categories WHERE id=$1', [shown[1].category_id])).rows[0].name;
+    assert.equal(await page.locator('#question-section').textContent(), sectionName);
+    assert.equal(await page.locator('#question-section').isVisible(), true);
     await choose(page, shown[1].correct_answer);
     await page.locator('#submit').click();
     await page.locator('#result').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#question-section').textContent(), sectionName);
     await page.locator('#next').click();
     await page.locator('#finish-view').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#finish-text').textContent(), 'Вопросы из списка ошибок закончились: верно 1 из 1 (100 %).');

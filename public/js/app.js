@@ -19,6 +19,8 @@
     const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
     let categories = [];
+    // В работе над ошибками вопросы из разных разделов: над вопросом показывается название раздела.
+    let showSection = false;
     let questions = [];
     let trainingBatchId = null;
     // Режим «Подходит или нет»: порция карточек, номер текущей, счёт и ответы без подтверждения сервера.
@@ -479,6 +481,7 @@
             return;
         }
         $('category-name').textContent = 'Работа над ошибками';
+        showSection = true;
         finishText = FINISH_MISTAKES;
         finishHint = '';
         progressLabel = 'Вопрос';
@@ -553,6 +556,7 @@
             return;
         }
         $('category-name').textContent = category.name;
+        showSection = false;
         finishText = FINISH_PORTION;
         finishHint = NEXT_PORTION_HINT;
         progressLabel = 'Порция: вопрос';
@@ -583,6 +587,9 @@
         const question = questions[index];
         show('question');
         $('progress').textContent = progressLabel + ' ' + (index + 1) + ' из ' + questions.length;
+        const section = showSection ? categories.find((c) => c.id === question.category_id) : null;
+        $('question-section').textContent = section ? section.name : '';
+        $('question-section').hidden = !section;
         renderRich($('question-text'), question.question_text);
         $('question-hint').textContent = hintText(question);
         $('question-hint').hidden = !isMulti(question);
