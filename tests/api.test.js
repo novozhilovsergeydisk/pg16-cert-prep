@@ -16,7 +16,8 @@ let userA;
 let cookieA;
 
 test('Основы объектов: новые вопросы доступны в пуле, пятый вариант и ключи проверяются полностью', async () => {
-    const texts = require('../scripts/questions/030_database_object_basics').questions.map((q) => q.q);
+    // Итоговые тексты: поздние правки (081, 083 и др.) могли переименовать вопросы набора.
+    const texts = require('../scripts/questions/030_database_object_basics').questions.map(require('./later-fixes')).map((q) => q.q);
     const added = (await pool.query('SELECT * FROM questions WHERE question_text=ANY($1::text[])', [texts])).rows;
     assert.equal(added.length, 30, 'Нужна миграция 030');
     const user = await createUser();
