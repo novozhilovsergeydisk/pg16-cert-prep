@@ -6,14 +6,11 @@ process.env.DOTENV_CONFIG_QUIET = 'true';
 const pool = require('../src/config/db');
 const { fixes } = require('../scripts/questions/033_explanation_fixes');
 const sql = fs.readFileSync(path.join(__dirname, '../migrations/033_explanation_fixes.sql'), 'utf8');
-// Более поздние исправления 044, 054–056, 060 могут переименовать вопрос или заменить тот же текст: тогда ожидается
+// Более поздние исправления 044 и общая цепочка (tests/later-fixes.js) могут переименовать вопрос или заменить тот же текст: тогда ожидается
 // результат самого позднего из них. Имя вопроса прослеживается по цепочке переименований.
 const later = [
     ...require('../scripts/questions/044_review_fixes').fixes,
-    ...require('../scripts/questions/054_sections_review_fixes').fixes,
-    ...require('../scripts/questions/055_pgoptions_export').fixes,
-    ...require('../scripts/questions/056_pending_restart').fixes,
-    ...require('../scripts/questions/060_codex_review_fixes').fixes,
+    ...require('./later-fixes').later,
 ];
 function finalName(question) {
     let name = question;
