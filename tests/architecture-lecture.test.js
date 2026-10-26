@@ -2,7 +2,8 @@ const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 process.env.DOTENV_CONFIG_QUIET = 'true';
 const pool = require('../src/config/db');
-const { questions: source } = require('../scripts/questions/052_architecture_lecture');
+const withLaterFixes = require('./later-fixes');
+const source = require('../scripts/questions/052_architecture_lecture').questions.map(withLaterFixes);
 after(() => pool.end());
 
 test('Раздел 04: шесть вопросов по сверке с лекцией в экзаменационной теме, согласованы с исходником', async () => {

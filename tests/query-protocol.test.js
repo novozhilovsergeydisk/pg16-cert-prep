@@ -2,7 +2,8 @@ const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 process.env.DOTENV_CONFIG_QUIET = 'true';
 const pool = require('../src/config/db');
-const { questions: source } = require('../scripts/questions/050_query_protocol');
+const withLaterFixes = require('./later-fixes');
+const source = require('../scripts/questions/050_query_protocol').questions.map(withLaterFixes);
 after(() => pool.end());
 
 test('Раздел 04: семь вопросов о протоколе, подготовленных операторах и курсорах в экзаменационной теме, согласованы с исходником', async () => {
