@@ -1,4 +1,4 @@
-// Накладывает более поздние исправления (054–056, 060–062, 064–076) на вопрос из исходника набора: тесты сверяют базу с итоговым текстом,
+// Накладывает более поздние исправления (054–056, 060–062, 064–077) на вопрос из исходника набора: тесты сверяют базу с итоговым текстом,
 // а уже выложенные миграции наборов остаются неизменными.
 const later = [
     ...require('../scripts/questions/054_sections_review_fixes').fixes,
@@ -20,6 +20,7 @@ const later = [
     ...require('../scripts/questions/074_option_length_topic10').fixes,
     ...require('../scripts/questions/075_option_length_topic04').fixes,
     ...require('../scripts/questions/076_option_length_topic05').fixes,
+    ...require('../scripts/questions/077_option_length_topic09').fixes,
 ];
 
 module.exports = function withLaterFixes(item) {
