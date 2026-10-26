@@ -6,7 +6,7 @@ const { MAX_RATIO, MAX_LONGEST_SHARE, lengthRatio, isLengthBiased, longestCorrec
 after(() => pool.end());
 
 // Темы, где варианты уже выровнены по длине; список растёт по мере переписывания тем.
-const REWRITTEN_TOPICS = ['20.', '18.', '14.', '06.', '02.', '07.', '16.', '15.', '10.', '04.', '05.', '09.', '11.', '13.', '08.', '12.'];
+const REWRITTEN_TOPICS = ['20.', '18.', '14.', '06.', '02.', '07.', '16.', '15.', '10.', '04.', '05.', '09.', '11.', '13.', '08.', '12.', '03.'];
 
 const kindOf = (row) => (row.question_text.includes('___') ? 'code' : row.correct_answer.length > 1 ? 'multi' : 'single');
 
