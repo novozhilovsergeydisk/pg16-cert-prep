@@ -6,8 +6,8 @@ process.env.NODE_ENV = 'test';
 const crypto = require('crypto');
 const app = require('../server');
 const pool = require('../src/config/db');
-const { questions: source } = require('../scripts/questions/046_syscalls');
 const withLaterFixes = require('./later-fixes');
+const source = require('../scripts/questions/046_syscalls').questions.map(withLaterFixes);
 const source07 = require('../scripts/questions/047_fsync_wal').questions.map(withLaterFixes);
 
 let server;
