@@ -958,8 +958,12 @@ test('Практикум темы 17 о блокировках строк дос
     assert.ok(!/^\*|^\|/m.test(text), 'нет курсива и таблиц, которые страница не рисует');
 });
 
-test('Практикумы тем 06, 07 и 13 доступны только после входа', async () => {
-    const titles = { '06': 'Очистка', '07': 'Буферный кеш и журнал', '13': 'Разграничение доступа' };
+test('Практикумы тем 06–11 и 13 доступны только после входа', async () => {
+    const titles = {
+        '06': 'Очистка', '07': 'Буферный кеш и журнал', '08': 'Базы данных и схемы', '09': 'Системный каталог',
+        '10': 'Табличные пространства', '11': 'Низкоуровневое хранение', '13': 'Разграничение доступа',
+    };
+    const examples = { '11': 4 };
     for (const [topic, title] of Object.entries(titles)) {
         assert.equal((await fetch(base + '/api/practice/' + topic)).status, 401, topic);
         const response = await fetch(base + '/api/practice/' + topic, { headers: { Cookie: cookieA } });
@@ -967,7 +971,7 @@ test('Практикумы тем 06, 07 и 13 доступны только п�
         assert.match(response.headers.get('content-type'), /text\/markdown/);
         const text = await response.text();
         assert.ok(text.startsWith(`# Практикум. ${title}\n`), topic);
-        for (let n = 1; n <= 3; n += 1) assert.ok(text.includes(`\n## Пример ${n}. `), `в практикуме ${topic} есть пример ${n}`);
+        for (let n = 1; n <= (examples[topic] || 3); n += 1) assert.ok(text.includes(`\n## Пример ${n}. `), `в практикуме ${topic} есть пример ${n}`);
         assert.ok(!/^\*|^\|/m.test(text), `в практикуме ${topic} нет курсива и таблиц, которые страница не рисует`);
         let fences = 0;
         for (const line of text.split('\n')) if (line.startsWith('```')) fences += 1;
