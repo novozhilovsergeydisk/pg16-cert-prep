@@ -940,7 +940,7 @@ test('Практикум темы 05 доступен только после в
     assert.match(text, /^# Практикум\. Изоляция и многоверсионность/);
     for (let n = 1; n <= 4; n += 1) assert.ok(text.includes(`\n## Пример ${n}. `), `в практикуме есть пример ${n}`);
     assert.ok(!/^\*/m.test(text), 'страница не показывает курсив');
-    for (const name of ['5', '06', '..%2F05', 'constructor', '__proto__']) {
+    for (const name of ['5', '99', '..%2F05', 'constructor', '__proto__']) {
         const other = await fetch(base + '/api/practice/' + name, { headers: { Cookie: cookieA } });
         assert.equal(other.status, 404, name);
         assert.deepEqual(await other.json(), { error: 'Практикум не найден' });
@@ -956,6 +956,23 @@ test('Практикум темы 17 о блокировках строк дос
     assert.match(text, /^# Практикум\. Блокировки строк/);
     for (let n = 1; n <= 3; n += 1) assert.ok(text.includes(`\n## Пример ${n}. `), `в практикуме есть пример ${n}`);
     assert.ok(!/^\*|^\|/m.test(text), 'нет курсива и таблиц, которые страница не рисует');
+});
+
+test('Практикумы тем 06, 07 и 13 доступны только после входа', async () => {
+    const titles = { '06': 'Очистка', '07': 'Буферный кеш и журнал', '13': 'Разграничение доступа' };
+    for (const [topic, title] of Object.entries(titles)) {
+        assert.equal((await fetch(base + '/api/practice/' + topic)).status, 401, topic);
+        const response = await fetch(base + '/api/practice/' + topic, { headers: { Cookie: cookieA } });
+        assert.equal(response.status, 200, topic);
+        assert.match(response.headers.get('content-type'), /text\/markdown/);
+        const text = await response.text();
+        assert.ok(text.startsWith(`# Практикум. ${title}\n`), topic);
+        for (let n = 1; n <= 3; n += 1) assert.ok(text.includes(`\n## Пример ${n}. `), `в практикуме ${topic} есть пример ${n}`);
+        assert.ok(!/^\*|^\|/m.test(text), `в практикуме ${topic} нет курсива и таблиц, которые страница не рисует`);
+        let fences = 0;
+        for (const line of text.split('\n')) if (line.startsWith('```')) fences += 1;
+        assert.equal(fences % 2, 0, `в практикуме ${topic} все блоки кода закрыты`);
+    }
 });
 
 test('Защитные заголовки есть, X-Powered-By не отдаётся', async () => {
