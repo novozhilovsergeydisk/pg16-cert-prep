@@ -21,7 +21,7 @@ router.get('/materials/:name', requireAuth, (req, res) => {
 });
 
 // Практикумы по темам: примеры для psql, файлы docs/practice/<номер темы>.md. Номера берутся из белого списка.
-const PRACTICE = { '05': '05.md' };
+const PRACTICE = { '05': '05.md', '17': '17.md' };
 
 router.get('/practice/:topic', requireAuth, (req, res) => {
     const file = Object.hasOwn(PRACTICE, req.params.topic) ? PRACTICE[req.params.topic] : null;

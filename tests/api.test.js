@@ -947,6 +947,17 @@ test('Практикум темы 05 доступен только после в
     }
 });
 
+test('Практикум темы 17 о блокировках строк доступен только после входа', async () => {
+    assert.equal((await fetch(base + '/api/practice/17')).status, 401);
+    const response = await fetch(base + '/api/practice/17', { headers: { Cookie: cookieA } });
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type'), /text\/markdown/);
+    const text = await response.text();
+    assert.match(text, /^# Практикум\. Блокировки строк/);
+    for (let n = 1; n <= 3; n += 1) assert.ok(text.includes(`\n## Пример ${n}. `), `в практикуме есть пример ${n}`);
+    assert.ok(!/^\*|^\|/m.test(text), 'нет курсива и таблиц, которые страница не рисует');
+});
+
 test('Защитные заголовки есть, X-Powered-By не отдаётся', async () => {
     for (const path of ['/', '/api/me']) {
         const response = await fetch(base + path);
