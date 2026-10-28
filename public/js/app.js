@@ -13,6 +13,10 @@
     const NEXT_PORTION_HINT = 'Откройте тему снова, чтобы получить следующую: сначала новые вопросы и те, где были ошибки.';
     let finishText = FINISH_PORTION;
     let finishHint = NEXT_PORTION_HINT;
+    // Практикумы по темам (docs/practice); ссылка на итоге порции, если верных меньше PRACTICE_BELOW.
+    const PRACTICE_TOPICS = ['05'];
+    const PRACTICE_BELOW = 0.7;
+    let finishPractice = null;
     // Число верных ответов в текущей порции или в работе над ошибками.
     let portionScore = 0;
     let progressLabel = 'Порция: вопрос';
@@ -484,6 +488,7 @@
         showSection = true;
         finishText = FINISH_MISTAKES;
         finishHint = '';
+        finishPractice = null;
         progressLabel = 'Вопрос';
         index = 0;
         portionScore = 0;
@@ -534,6 +539,15 @@
                     link.addEventListener('click', () => openMaterial(materialName));
                     item.appendChild(link);
                 }
+                const practice = practiceTopicOf(category);
+                if (practice) {
+                    const link = document.createElement('button');
+                    link.type = 'button';
+                    link.className = 'link card-link';
+                    link.textContent = 'Практикум';
+                    link.addEventListener('click', () => openPractice(practice));
+                    item.appendChild(link);
+                }
                 list.appendChild(item);
             });
         } catch (err) {
@@ -559,6 +573,7 @@
         showSection = false;
         finishText = FINISH_PORTION;
         finishHint = NEXT_PORTION_HINT;
+        finishPractice = practiceTopicOf(category);
         progressLabel = 'Порция: вопрос';
         index = 0;
         portionScore = 0;
@@ -570,18 +585,26 @@
     const unconfirmedAnswers = new Map();
     const answerKeyOf = (question) => (trainingBatchId || '-') + ':' + question.id;
 
-    // Итог порции: «верно X из N (P %)», под ним необязательная подсказка.
-    function showFinish(text, score, total, hint) {
+    function practiceTopicOf(category) {
+        const topic = category.name.slice(0, 2);
+        return PRACTICE_TOPICS.includes(topic) && category.name[2] === '.' ? topic : null;
+    }
+
+    // Итог порции: «верно X из N (P %)», под ним необязательная подсказка и, при слабом результате, практикум темы.
+    function showFinish(text, score, total, hint, practice) {
         $('finish-text').textContent = text + ': верно ' + score + ' из ' + total
             + ' (' + Math.round((score * 100) / total) + ' %).';
         $('finish-hint').textContent = hint;
         $('finish-hint').hidden = !hint;
+        const offer = practice && score < total * PRACTICE_BELOW ? practice : null;
+        $('finish-practice').hidden = !offer;
+        $('finish-practice-link').onclick = offer ? () => openPractice(offer) : null;
         show('finish');
     }
 
     function showQuestion() {
         if (index >= questions.length) {
-            showFinish(finishText, portionScore, questions.length, finishHint);
+            showFinish(finishText, portionScore, questions.length, finishHint, finishPractice);
             return;
         }
         const question = questions[index];
@@ -1181,21 +1204,29 @@
         flushParagraph();
     }
 
-    async function openMaterial(name) {
+    function openMaterial(name) {
+        return openDocument('/api/materials/' + name, 'Материал недоступен');
+    }
+
+    function openPractice(topic) {
+        return openDocument('/api/practice/' + topic, 'Практикум недоступен');
+    }
+
+    async function openDocument(url, failText) {
         showError('');
         let text;
         try {
             const started = Date.now();
-            const { response, body, timedOut } = await timedFetch('/api/materials/' + name);
+            const { response, body, timedOut } = await timedFetch(url);
             if (response && response.status === 401) {
                 showLogin();
                 return;
             }
             if (!response || response.status >= 500) {
                 reportClientError({ kind: !response ? (timedOut ? 'timeout' : 'network') : 'server',
-                    path: '/api/materials/' + name, status: response ? response.status : 0, ms: Date.now() - started });
+                    path: url, status: response ? response.status : 0, ms: Date.now() - started });
             }
-            if (!response || !response.ok) throw new Error('Материал недоступен');
+            if (!response || !response.ok) throw new Error(failText);
             text = body;
         } catch (err) {
             showError(err.message);

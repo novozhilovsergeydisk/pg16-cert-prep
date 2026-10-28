@@ -20,4 +20,19 @@ router.get('/materials/:name', requireAuth, (req, res) => {
     });
 });
 
+// Практикумы по темам: примеры для psql, файлы docs/practice/<номер темы>.md. Номера берутся из белого списка.
+const PRACTICE = { '05': '05.md' };
+
+router.get('/practice/:topic', requireAuth, (req, res) => {
+    const file = Object.hasOwn(PRACTICE, req.params.topic) ? PRACTICE[req.params.topic] : null;
+    if (!file) return res.status(404).json({ error: 'Практикум не найден' });
+    res.type('text/markdown; charset=utf-8');
+    res.sendFile(path.join(__dirname, '..', '..', 'docs', 'practice', file), (err) => {
+        if (!err) return;
+        noteError(res, err);
+        if (res.headersSent) res.destroy();
+        else res.status(500).json({ error: 'Практикум недоступен' });
+    });
+});
+
 module.exports = router;

@@ -931,6 +931,22 @@ test('Материал «ACID: как это устроено в PostgreSQL» д
     assert.ok(!text.includes('**'), 'страница не показывает жирный шрифт');
 });
 
+test('Практикум темы 05 доступен только после входа, чужие номера отклоняются', async () => {
+    assert.equal((await fetch(base + '/api/practice/05')).status, 401);
+    const response = await fetch(base + '/api/practice/05', { headers: { Cookie: cookieA } });
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type'), /text\/markdown/);
+    const text = await response.text();
+    assert.match(text, /^# Практикум\. Изоляция и многоверсионность/);
+    for (let n = 1; n <= 4; n += 1) assert.ok(text.includes(`\n## Пример ${n}. `), `в практикуме есть пример ${n}`);
+    assert.ok(!/^\*/m.test(text), 'страница не показывает курсив');
+    for (const name of ['5', '06', '..%2F05', 'constructor', '__proto__']) {
+        const other = await fetch(base + '/api/practice/' + name, { headers: { Cookie: cookieA } });
+        assert.equal(other.status, 404, name);
+        assert.deepEqual(await other.json(), { error: 'Практикум не найден' });
+    }
+});
+
 test('Защитные заголовки есть, X-Powered-By не отдаётся', async () => {
     for (const path of ['/', '/api/me']) {
         const response = await fetch(base + path);
