@@ -1,0 +1,49 @@
+-- Тема 05, вопрос 2241: варианты — четыре строки таблицы с разной историей (5 исправлений), ключ не меняется.
+-- Источник: scripts/questions/110_topic05_q2241.js
+-- Повторный запуск безопасен: вопрос и вариант ищутся по тексту, прежнее или уже новое значение допустимо,
+-- иначе пакет отменяется. Ключи ответов, число и порядок вариантов не меняются.
+
+BEGIN;
+SET LOCAL standard_conforming_strings = on;
+LOCK TABLE questions IN SHARE ROW EXCLUSIVE MODE;
+
+DO $fix$
+DECLARE fix record; matches integer; qid integer; k text;
+BEGIN
+    FOR fix IN SELECT * FROM (VALUES
+        ('question', 'Транзакции из вариантов ниже уже завершились. После этого вы на Read Committed выполняете SELECT * FROM t. Какие версии строк вернёт запрос?', NULL, NULL, NULL, 'В таблице t четыре строки с разной историей. Все транзакции, которые их меняли, уже завершились. Вы на Read Committed выполняете SELECT * FROM t. Какие строки вернёт запрос?'),
+        ('option', 'В таблице t четыре строки с разной историей. Все транзакции, которые их меняли, уже завершились. Вы на Read Committed выполняете SELECT * FROM t. Какие строки вернёт запрос?', 'Вставка зафиксирована, удаления не было', 'Вставку зафиксировали, удаления не было', 'Версию вставили и больше не трогали — она актуальна.', 'Строку вставили и больше не трогали — она видна.'),
+        ('option', 'В таблице t четыре строки с разной историей. Все транзакции, которые их меняли, уже завершились. Вы на Read Committed выполняете SELECT * FROM t. Какие строки вернёт запрос?', 'Вставка зафиксирована, удаление зафиксировано', 'Вставку зафиксировали, удаление зафиксировали', 'Удаление зафиксировано до создания снимка, поэтому версия в него не попадёт.', 'Удаление зафиксировано до создания снимка, поэтому строка в результат не попадёт.'),
+        ('option', 'В таблице t четыре строки с разной историей. Все транзакции, которые их меняли, уже завершились. Вы на Read Committed выполняете SELECT * FROM t. Какие строки вернёт запрос?', 'Вставка отменена, удаления не было', 'Вставку отменили, удаления не было', NULL, NULL),
+        ('option', 'В таблице t четыре строки с разной историей. Все транзакции, которые их меняли, уже завершились. Вы на Read Committed выполняете SELECT * FROM t. Какие строки вернёт запрос?', 'Вставка зафиксирована, удаление отменено', 'Вставку зафиксировали, удаление отменили', 'Удаление откатили, версия по-прежнему актуальна.', 'Удаление откатили, строка по-прежнему видна.')
+    ) AS fixes(kind, question_text, opt_text, new_opt_text, old_text, new_text)
+    LOOP
+        -- Сначала ровно один вопрос по тексту (прежнему или новому), дальше всё только по его id.
+        SELECT count(*), min(id) INTO matches, qid FROM questions
+        WHERE question_text IN (fix.question_text, CASE WHEN fix.kind = 'question' THEN fix.new_text ELSE fix.question_text END);
+        IF matches <> 1 THEN RAISE EXCEPTION 'Не найден единственный вопрос для исправления'; END IF;
+        IF fix.kind = 'question' THEN
+            UPDATE questions SET question_text = fix.new_text WHERE id = qid;
+        ELSIF fix.kind = 'explanation' THEN
+            PERFORM 1 FROM questions WHERE id = qid AND explanation IN (fix.old_text, fix.new_text);
+            IF NOT FOUND THEN RAISE EXCEPTION 'Неожиданное пояснение вопроса'; END IF;
+            UPDATE questions SET explanation = fix.new_text WHERE id = qid;
+        ELSE
+            SELECT count(*), min(o.key) INTO matches, k
+            FROM questions q, jsonb_each_text(q.options) o
+            WHERE q.id = qid AND o.value IN (fix.opt_text, coalesce(fix.new_opt_text, fix.opt_text));
+            IF matches <> 1 THEN RAISE EXCEPTION 'Не найден единственный вариант ответа для исправления'; END IF;
+            IF fix.new_text IS NOT NULL THEN
+                PERFORM 1 FROM questions WHERE id = qid AND option_notes ->> k IN (fix.old_text, fix.new_text);
+                IF NOT FOUND THEN RAISE EXCEPTION 'Неожиданное пояснение варианта'; END IF;
+                UPDATE questions SET option_notes = jsonb_set(option_notes, ARRAY[k], to_jsonb(fix.new_text)) WHERE id = qid;
+            END IF;
+            IF fix.new_opt_text IS NOT NULL THEN
+                UPDATE questions SET options = jsonb_set(options, ARRAY[k], to_jsonb(fix.new_opt_text)) WHERE id = qid;
+            END IF;
+        END IF;
+    END LOOP;
+END
+$fix$;
+
+COMMIT;
