@@ -54,8 +54,8 @@
 
 @media (prefers-color-scheme: dark) {
     :root[data-accent="beige"] {
-        --accent: #d6c09a;
-        --accent-hover: #e3d0ae;
+        --accent: #e8c98a;
+        --accent-hover: #f0d6a2;
         --accent-fg: #1e1a14;
     }
 
