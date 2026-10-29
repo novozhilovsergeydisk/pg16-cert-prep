@@ -15,8 +15,15 @@
     --radius: 10px;
 }
 
+/* Тема из профиля (users.theme): data-theme="light" или "dark" задаёт её явно, без атрибута — как в системе.
+   Атрибут ставит public/js/accent.js. Тёмные значения повторены для системной и для явно выбранной тёмной темы. */
+
+:root[data-theme="light"] {
+    color-scheme: light;
+}
+
 @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-theme="light"]) {
         --bg: #121417;
         --surface: #1b1f24;
         --fg: #e6e9ee;
@@ -30,6 +37,22 @@
         --bad: #ff7b72;
         --bad-bg: #2e1a1a;
     }
+}
+
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #121417;
+    --surface: #1b1f24;
+    --fg: #e6e9ee;
+    --muted: #98a2b0;
+    --border: #2c333b;
+    --accent: #3a78ad;
+    --accent-hover: #4a88bd;
+    --accent-fg: #ffffff;
+    --ok: #4cc38a;
+    --ok-bg: #14291f;
+    --bad: #ff7b72;
+    --bad-bg: #2e1a1a;
 }
 
 /* Цвет кнопок и ссылок из профиля (users.accent); атрибут ставит public/js/accent.js. Синий — значения выше. */
@@ -53,23 +76,41 @@
 }
 
 @media (prefers-color-scheme: dark) {
-    :root[data-accent="beige"] {
+    :root[data-accent="beige"]:not([data-theme="light"]) {
         --accent: #e8c98a;
         --accent-hover: #f0d6a2;
         --accent-fg: #1e1a14;
     }
 
-    :root[data-accent="green"] {
+    :root[data-accent="green"]:not([data-theme="light"]) {
         --accent: #6fb59a;
         --accent-hover: #82c4aa;
         --accent-fg: #0d1a14;
     }
 
-    :root[data-accent="graphite"] {
+    :root[data-accent="graphite"]:not([data-theme="light"]) {
         --accent: #9aa5b1;
         --accent-hover: #adb7c2;
         --accent-fg: #12161a;
     }
+}
+
+:root[data-theme="dark"][data-accent="beige"] {
+    --accent: #e8c98a;
+    --accent-hover: #f0d6a2;
+    --accent-fg: #1e1a14;
+}
+
+:root[data-theme="dark"][data-accent="green"] {
+    --accent: #6fb59a;
+    --accent-hover: #82c4aa;
+    --accent-fg: #0d1a14;
+}
+
+:root[data-theme="dark"][data-accent="graphite"] {
+    --accent: #9aa5b1;
+    --accent-hover: #adb7c2;
+    --accent-fg: #12161a;
 }
 
 * {

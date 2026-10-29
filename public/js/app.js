@@ -266,7 +266,7 @@
         show('privacy');
     }
 
-    // Цвет кнопок и ссылок: значение из профиля, копия в браузере нужна public/js/accent.js до первой отрисовки.
+    // Цвет кнопок и ссылок и тема: значения из профиля, копии в браузере нужны public/js/accent.js до первой отрисовки.
     const ACCENTS = ['blue', 'beige', 'green', 'graphite'];
 
     function applyAccent(accent) {
@@ -278,6 +278,34 @@
             localStorage.setItem('pg16-accent', value);
         } catch (err) {
             // хранилище недоступно: цвет из профиля применится после загрузки
+        }
+    }
+
+    const THEMES = ['auto', 'light', 'dark'];
+
+    function applyTheme(theme) {
+        const value = THEMES.includes(theme) ? theme : 'auto';
+        if (value === 'auto') delete document.documentElement.dataset.theme;
+        else document.documentElement.dataset.theme = value;
+        $('theme-select').value = value;
+        try {
+            localStorage.setItem('pg16-theme', value);
+        } catch (err) {
+            // хранилище недоступно: тема из профиля применится после загрузки
+        }
+    }
+
+    async function changeTheme() {
+        const chosen = $('theme-select').value;
+        const previous = user && THEMES.includes(user.theme) ? user.theme : 'auto';
+        showError('');
+        applyTheme(chosen);
+        try {
+            await postJson('/api/me/theme', { theme: chosen });
+            if (user) user.theme = chosen;
+        } catch (err) {
+            applyTheme(previous);
+            if (err.message) showError('Не удалось сохранить тему, попробуйте ещё раз');
         }
     }
 
@@ -298,6 +326,7 @@
     function startApp(me) {
         user = me;
         applyAccent(me.accent);
+        applyTheme(me.theme);
         $('release-name').textContent = me.release ? `${me.release.date} · ${me.release.commit}` : 'неизвестен';
         $('release').hidden = false;
         $('user-email').textContent = me.email;
@@ -1577,6 +1606,7 @@
     $('code-form').addEventListener('submit', submitCode);
     $('logout').addEventListener('click', logout);
     $('accent-select').addEventListener('change', changeAccent);
+    $('theme-select').addEventListener('change', changeTheme);
     $('open-changelog').addEventListener('click', () => openMaterial('changelog'));
     $('open-privacy').addEventListener('click', openPrivacy);
     $('privacy-back').addEventListener('click', () => {

@@ -126,7 +126,7 @@ async function openSession(client, res, email) {
     const user = await client.query(
         `INSERT INTO users (email, last_login_at) VALUES ($1, now())
          ON CONFLICT (email) DO UPDATE SET last_login_at = now()
-         RETURNING id, email, role, accent`,
+         RETURNING id, email, role, accent, theme`,
         [email]
     );
     await client.query('DELETE FROM sessions WHERE expires_at < now()');
@@ -137,7 +137,7 @@ async function openSession(client, res, email) {
     );
     await client.query('COMMIT');
     res.cookie(COOKIE_NAME, sid, { ...cookieOptions(), maxAge: SESSION_DAYS * 24 * HOUR_MS });
-    res.json({ email: user.rows[0].email, role: user.rows[0].role, accent: user.rows[0].accent, release });
+    res.json({ email: user.rows[0].email, role: user.rows[0].role, accent: user.rows[0].accent, theme: user.rows[0].theme, release });
 }
 
 // Показывает, в какой аккаунт ведёт ссылка, не расходуя её: страница подтверждения пишет «Вход как …»,
@@ -259,7 +259,7 @@ async function logout(req, res) {
 }
 
 function getMe(req, res) {
-    res.json({ email: req.user.email, role: req.user.role, accent: req.user.accent, release });
+    res.json({ email: req.user.email, role: req.user.role, accent: req.user.accent, theme: req.user.theme, release });
 }
 
 // Цвет кнопок и ссылок; тот же список проверяет ограничение users_accent_check (миграция 106).
@@ -279,4 +279,21 @@ async function setAccent(req, res) {
     }
 }
 
-module.exports = { requestLink, peekLink, verifyLink, verifyCode, logout, getMe, setAccent, normalizeEmail };
+// Светлая или тёмная тема; тот же список проверяет ограничение users_theme_check (миграция 107).
+const THEMES = ['auto', 'light', 'dark'];
+
+async function setTheme(req, res) {
+    const theme = req.body && req.body.theme;
+    if (!THEMES.includes(theme)) {
+        return res.status(400).json({ error: 'Такой темы нет, выберите из списка' });
+    }
+    try {
+        await pool.query('UPDATE users SET theme = $1 WHERE id = $2', [theme, req.user.id]);
+        res.json({ theme });
+    } catch (err) {
+        noteError(res, err);
+        res.status(500).json({ error: 'Не удалось сохранить тему, попробуйте ещё раз' });
+    }
+}
+
+module.exports = { requestLink, peekLink, verifyLink, verifyCode, logout, getMe, setAccent, setTheme, normalizeEmail };

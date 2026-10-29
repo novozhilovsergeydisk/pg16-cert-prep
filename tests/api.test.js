@@ -639,6 +639,29 @@ test('Номер релиза и «Что нового» видны только
     assert.ok(!/^\*|^\||`/m.test(text), 'страница не рисует курсив и таблицы, в тексте нет обратных кавычек');
 });
 
+test('Тема сохраняется в профиле, неверное значение и запрос без входа отклоняются', async () => {
+    const user = await createUser();
+    assert.equal((await get('/api/me', user.cookie)).body.theme, 'auto');
+    assert.equal((await post('/api/me/theme', { theme: 'dark' }, null)).status, 401);
+    for (const theme of ['light', 'dark', 'auto', 'dark']) {
+        const saved = await post('/api/me/theme', { theme }, user.cookie);
+        assert.equal(saved.status, 200);
+        assert.deepEqual(saved.body, { theme });
+    }
+    assert.equal((await get('/api/me', user.cookie)).body.theme, 'dark');
+    for (const theme of ['system', '', null, 0, ['dark'], 'DARK']) {
+        const rejected = await post('/api/me/theme', { theme }, user.cookie);
+        assert.equal(rejected.status, 400, JSON.stringify(theme));
+        assert.deepEqual(rejected.body, { error: 'Такой темы нет, выберите из списка' });
+    }
+    const other = await createUser();
+    assert.equal((await get('/api/me', other.cookie)).body.theme, 'auto', 'тема одного пользователя не меняет другого');
+    const foreign = await post('/api/me/theme', { theme: 'light' }, user.cookie, { Origin: 'https://evil.example' });
+    assert.equal(foreign.status, 403);
+    assert.equal((await get('/api/me', user.cookie)).body.theme, 'dark');
+    assert.equal((await get('/api/me', user.cookie)).body.accent, 'blue', 'тема не меняет цвет');
+});
+
 test('Цвет кнопок сохраняется в профиле, неверное значение и запрос без входа отклоняются', async () => {
     const user = await createUser();
     assert.equal((await get('/api/me', user.cookie)).body.accent, 'blue');
@@ -690,7 +713,7 @@ test('Вход по ссылке: письмо, одноразовый токе�
 
     const verify = await post('/api/auth/verify', { token: tokenFromMail(mail) }, null);
     assert.equal(verify.status, 200);
-    assert.deepEqual(verify.body, { email, role: 'user', accent: 'blue', release });
+    assert.deepEqual(verify.body, { email, role: 'user', accent: 'blue', theme: 'auto', release });
     const cookie = sidFrom(verify.headers);
     assert.ok(cookie, 'ставится cookie сеанса');
     assert.match(verify.headers.get('set-cookie'), /HttpOnly/i);
@@ -698,7 +721,7 @@ test('Вход по ссылке: письмо, одноразовый токе�
 
     const me = await get('/api/me', cookie);
     assert.equal(me.status, 200);
-    assert.deepEqual(me.body, { email, role: 'user', accent: 'blue', release });
+    assert.deepEqual(me.body, { email, role: 'user', accent: 'blue', theme: 'auto', release });
 
     const again = await post('/api/auth/verify', { token: tokenFromMail(mail) }, null);
     assert.equal(again.status, 400, 'токен одноразовый');
@@ -815,7 +838,7 @@ test('Вход по коду из письма: код одноразовый и
 
     const ok = await post('/api/auth/verify-code', { email: email.toUpperCase(), request_id: requestId, code }, null);
     assert.equal(ok.status, 200);
-    assert.deepEqual(ok.body, { email, role: 'user', accent: 'blue', release });
+    assert.deepEqual(ok.body, { email, role: 'user', accent: 'blue', theme: 'auto', release });
     const cookie = sidFrom(ok.headers);
     assert.ok(cookie, 'ставится cookie сеанса');
     assert.equal((await get('/api/me', cookie)).status, 200);
