@@ -7,6 +7,10 @@ const pool = require('../src/config/db');
 const { questions: replacements } = require('../scripts/questions/029_replace_semantic_duplicates');
 const { buildMigration } = require('../scripts/gen-question-replacements');
 const sql = fs.readFileSync(path.join(__dirname, '../migrations/029_replace_semantic_duplicates.sql'), 'utf8');
+const { later } = require('./later-fixes');
+
+// Текст вопроса после поздних исправлений (tests/later-fixes.js): в банке он мог измениться после 029.
+const latestText = (text) => later.reduce((t, f) => (f.kind === 'question' && f.q === t ? f.new : t), text);
 
 after(() => pool.end());
 
@@ -27,7 +31,7 @@ async function fixture(run) {
         for (const r of replacements) {
             const result = await db.query(`UPDATE questions q SET question_text=$1
                 FROM categories c WHERE c.id=q.category_id AND left(c.name,3)=$2
-                AND q.question_text IN ($1,$3) RETURNING q.id`, [r.oldQuestion, r.t + '.', r.q]);
+                AND q.question_text IN ($1,$3,$4) RETURNING q.id`, [r.oldQuestion, r.t + '.', r.q, latestText(r.q)]);
             assert.equal(result.rowCount, 1, 'Исходный или заменённый вопрос должен присутствовать в банке');
             targets.push(result.rows[0].id);
         }
