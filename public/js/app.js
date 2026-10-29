@@ -298,6 +298,8 @@
     function startApp(me) {
         user = me;
         applyAccent(me.accent);
+        $('release-name').textContent = me.release ? `${me.release.date} · ${me.release.commit}` : 'неизвестен';
+        $('release').hidden = false;
         $('user-email').textContent = me.email;
         $('user-bar').hidden = false;
         $('open-admin').hidden = me.role !== 'admin';
@@ -1575,6 +1577,7 @@
     $('code-form').addEventListener('submit', submitCode);
     $('logout').addEventListener('click', logout);
     $('accent-select').addEventListener('change', changeAccent);
+    $('open-changelog').addEventListener('click', () => openMaterial('changelog'));
     $('open-privacy').addEventListener('click', openPrivacy);
     $('privacy-back').addEventListener('click', () => {
         if (privacyReturn === 'categories') loadCategories();

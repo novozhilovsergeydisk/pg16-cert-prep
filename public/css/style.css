@@ -603,6 +603,13 @@ pre code {
     padding: 6px 14px;
 }
 
+.release {
+    margin: 40px 0 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+    text-align: center;
+}
+
 .accent-picker {
     display: flex;
     align-items: center;

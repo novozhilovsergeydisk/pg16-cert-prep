@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const app = require('../server');
 const pool = require('../src/config/db');
 const { outbox } = require('../src/services/mailer');
+const { release } = require('../src/services/release');
 
 const TEST_DOMAIN = '@example.test';
 let server;
@@ -622,6 +623,22 @@ function sidFrom(headers) {
     return match ? 'sid=' + match[1] : null;
 }
 
+test('Номер релиза и «Что нового» видны только после входа', async () => {
+    assert.ok(release, 'в git-копии номер релиза должен определяться');
+    assert.match(release.commit, /^[0-9a-f]{7,40}$/);
+    assert.match(release.date, /^\d{2}\.\d{2}\.\d{4}$/);
+    const user = await createUser();
+    assert.deepEqual((await get('/api/me', user.cookie)).body.release, release);
+    assert.equal((await fetch(base + '/api/materials/changelog')).status, 401);
+    const response = await fetch(base + '/api/materials/changelog', { headers: { Cookie: user.cookie } });
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type'), /text\/markdown/);
+    const text = await response.text();
+    assert.match(text, /^# Что нового\n/);
+    assert.match(text, /\n## \d{2}\.\d{2}\.\d{4}\n/);
+    assert.ok(!/^\*|^\||`/m.test(text), 'страница не рисует курсив и таблицы, в тексте нет обратных кавычек');
+});
+
 test('Цвет кнопок сохраняется в профиле, неверное значение и запрос без входа отклоняются', async () => {
     const user = await createUser();
     assert.equal((await get('/api/me', user.cookie)).body.accent, 'blue');
@@ -673,7 +690,7 @@ test('Вход по ссылке: письмо, одноразовый токе�
 
     const verify = await post('/api/auth/verify', { token: tokenFromMail(mail) }, null);
     assert.equal(verify.status, 200);
-    assert.deepEqual(verify.body, { email, role: 'user', accent: 'blue' });
+    assert.deepEqual(verify.body, { email, role: 'user', accent: 'blue', release });
     const cookie = sidFrom(verify.headers);
     assert.ok(cookie, 'ставится cookie сеанса');
     assert.match(verify.headers.get('set-cookie'), /HttpOnly/i);
@@ -681,7 +698,7 @@ test('Вход по ссылке: письмо, одноразовый токе�
 
     const me = await get('/api/me', cookie);
     assert.equal(me.status, 200);
-    assert.deepEqual(me.body, { email, role: 'user', accent: 'blue' });
+    assert.deepEqual(me.body, { email, role: 'user', accent: 'blue', release });
 
     const again = await post('/api/auth/verify', { token: tokenFromMail(mail) }, null);
     assert.equal(again.status, 400, 'токен одноразовый');
@@ -798,7 +815,7 @@ test('Вход по коду из письма: код одноразовый и
 
     const ok = await post('/api/auth/verify-code', { email: email.toUpperCase(), request_id: requestId, code }, null);
     assert.equal(ok.status, 200);
-    assert.deepEqual(ok.body, { email, role: 'user', accent: 'blue' });
+    assert.deepEqual(ok.body, { email, role: 'user', accent: 'blue', release });
     const cookie = sidFrom(ok.headers);
     assert.ok(cookie, 'ставится cookie сеанса');
     assert.equal((await get('/api/me', cookie)).status, 200);

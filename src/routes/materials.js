@@ -6,7 +6,7 @@ const { noteError } = require('../middleware/requestLog');
 const router = express.Router();
 
 // Материалы для изучения: Markdown-файлы из репозитория, только для вошедших. Имена берутся из белого списка.
-const MATERIALS = { interview: 'INTERVIEW.md', memory: 'MEMORY.md', syscalls: 'SYSCALLS.md', planner: 'PLANNER.md', xact: 'XACT.md', acid: 'ACID.md' };
+const MATERIALS = { interview: 'INTERVIEW.md', memory: 'MEMORY.md', syscalls: 'SYSCALLS.md', planner: 'PLANNER.md', xact: 'XACT.md', acid: 'ACID.md', changelog: 'CHANGELOG.md' };
 
 router.get('/materials/:name', requireAuth, (req, res) => {
     const file = Object.hasOwn(MATERIALS, req.params.name) ? MATERIALS[req.params.name] : null;

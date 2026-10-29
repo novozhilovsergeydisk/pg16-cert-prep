@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const pool = require('../config/db');
 const { noteError, logError } = require('../middleware/requestLog');
+const { release } = require('../services/release');
 const { sendMail } = require('../services/mailer');
 const { COOKIE_NAME, newToken, hashToken, isToken, appUrl, readCookie } = require('../middleware/auth');
 const { TOO_OFTEN } = require('../middleware/rateLimit');
@@ -136,7 +137,7 @@ async function openSession(client, res, email) {
     );
     await client.query('COMMIT');
     res.cookie(COOKIE_NAME, sid, { ...cookieOptions(), maxAge: SESSION_DAYS * 24 * HOUR_MS });
-    res.json({ email: user.rows[0].email, role: user.rows[0].role, accent: user.rows[0].accent });
+    res.json({ email: user.rows[0].email, role: user.rows[0].role, accent: user.rows[0].accent, release });
 }
 
 // Показывает, в какой аккаунт ведёт ссылка, не расходуя её: страница подтверждения пишет «Вход как …»,
@@ -258,7 +259,7 @@ async function logout(req, res) {
 }
 
 function getMe(req, res) {
-    res.json({ email: req.user.email, role: req.user.role, accent: req.user.accent });
+    res.json({ email: req.user.email, role: req.user.role, accent: req.user.accent, release });
 }
 
 // Цвет кнопок и ссылок; тот же список проверяет ограничение users_accent_check (миграция 106).
