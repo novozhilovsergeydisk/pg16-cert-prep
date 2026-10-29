@@ -6,11 +6,20 @@
     <title>Тренажёр сертификации PostgreSQL 16</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="css/style.css">
+    <script src="js/accent.js"></script>
 </head>
 <body>
     <main>
         <h1>Тренажёр сертификации PostgreSQL 16</h1>
         <div id="user-bar" class="user-bar" hidden>
+            <label class="accent-picker">Цвет
+                <select id="accent-select">
+                    <option value="blue">Синий</option>
+                    <option value="beige">Бежевый</option>
+                    <option value="green">Зелёный</option>
+                    <option value="graphite">Графитовый</option>
+                </select>
+            </label>
             <span id="user-email" class="user-email"></span>
             <button id="logout" class="btn-secondary" type="button">Выйти</button>
         </div>

@@ -32,6 +32,46 @@
     }
 }
 
+/* Цвет кнопок и ссылок из профиля (users.accent); атрибут ставит public/js/accent.js. Синий — значения выше. */
+
+:root[data-accent="beige"] {
+    --accent: #8a6a3f;
+    --accent-hover: #74572f;
+    --accent-fg: #ffffff;
+}
+
+:root[data-accent="green"] {
+    --accent: #2e6b52;
+    --accent-hover: #255845;
+    --accent-fg: #ffffff;
+}
+
+:root[data-accent="graphite"] {
+    --accent: #454f5a;
+    --accent-hover: #37404a;
+    --accent-fg: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root[data-accent="beige"] {
+        --accent: #d6c09a;
+        --accent-hover: #e3d0ae;
+        --accent-fg: #1e1a14;
+    }
+
+    :root[data-accent="green"] {
+        --accent: #6fb59a;
+        --accent-hover: #82c4aa;
+        --accent-fg: #0d1a14;
+    }
+
+    :root[data-accent="graphite"] {
+        --accent: #9aa5b1;
+        --accent-hover: #adb7c2;
+        --accent-fg: #12161a;
+    }
+}
+
 * {
     box-sizing: border-box;
 }
@@ -546,6 +586,7 @@ pre code {
 
 .user-bar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: flex-end;
     gap: 12px;
@@ -560,6 +601,28 @@ pre code {
 
 .user-bar .btn-secondary {
     padding: 6px 14px;
+}
+
+.accent-picker {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 0.95rem;
+}
+
+.accent-picker select {
+    padding: 5px 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--fg);
+    font: inherit;
+}
+
+.accent-picker select:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
 }
 
 .login-form {

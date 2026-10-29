@@ -266,8 +266,38 @@
         show('privacy');
     }
 
+    // Цвет кнопок и ссылок: значение из профиля, копия в браузере нужна public/js/accent.js до первой отрисовки.
+    const ACCENTS = ['blue', 'beige', 'green', 'graphite'];
+
+    function applyAccent(accent) {
+        const value = ACCENTS.includes(accent) ? accent : 'blue';
+        if (value === 'blue') delete document.documentElement.dataset.accent;
+        else document.documentElement.dataset.accent = value;
+        $('accent-select').value = value;
+        try {
+            localStorage.setItem('pg16-accent', value);
+        } catch (err) {
+            // хранилище недоступно: цвет из профиля применится после загрузки
+        }
+    }
+
+    async function changeAccent() {
+        const chosen = $('accent-select').value;
+        const previous = user && ACCENTS.includes(user.accent) ? user.accent : 'blue';
+        showError('');
+        applyAccent(chosen);
+        try {
+            await postJson('/api/me/accent', { accent: chosen });
+            if (user) user.accent = chosen;
+        } catch (err) {
+            applyAccent(previous);
+            if (err.message) showError('Не удалось сохранить цвет, попробуйте ещё раз');
+        }
+    }
+
     function startApp(me) {
         user = me;
+        applyAccent(me.accent);
         $('user-email').textContent = me.email;
         $('user-bar').hidden = false;
         $('open-admin').hidden = me.role !== 'admin';
@@ -1544,6 +1574,7 @@
     $('login-confirm').addEventListener('click', confirmLogin);
     $('code-form').addEventListener('submit', submitCode);
     $('logout').addEventListener('click', logout);
+    $('accent-select').addEventListener('change', changeAccent);
     $('open-privacy').addEventListener('click', openPrivacy);
     $('privacy-back').addEventListener('click', () => {
         if (privacyReturn === 'categories') loadCategories();

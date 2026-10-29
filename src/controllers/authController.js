@@ -125,7 +125,7 @@ async function openSession(client, res, email) {
     const user = await client.query(
         `INSERT INTO users (email, last_login_at) VALUES ($1, now())
          ON CONFLICT (email) DO UPDATE SET last_login_at = now()
-         RETURNING id, email, role`,
+         RETURNING id, email, role, accent`,
         [email]
     );
     await client.query('DELETE FROM sessions WHERE expires_at < now()');
@@ -136,7 +136,7 @@ async function openSession(client, res, email) {
     );
     await client.query('COMMIT');
     res.cookie(COOKIE_NAME, sid, { ...cookieOptions(), maxAge: SESSION_DAYS * 24 * HOUR_MS });
-    res.json({ email: user.rows[0].email, role: user.rows[0].role });
+    res.json({ email: user.rows[0].email, role: user.rows[0].role, accent: user.rows[0].accent });
 }
 
 // Показывает, в какой аккаунт ведёт ссылка, не расходуя её: страница подтверждения пишет «Вход как …»,
@@ -258,7 +258,24 @@ async function logout(req, res) {
 }
 
 function getMe(req, res) {
-    res.json({ email: req.user.email, role: req.user.role });
+    res.json({ email: req.user.email, role: req.user.role, accent: req.user.accent });
 }
 
-module.exports = { requestLink, peekLink, verifyLink, verifyCode, logout, getMe, normalizeEmail };
+// Цвет кнопок и ссылок; тот же список проверяет ограничение users_accent_check (миграция 106).
+const ACCENTS = ['blue', 'beige', 'green', 'graphite'];
+
+async function setAccent(req, res) {
+    const accent = req.body && req.body.accent;
+    if (!ACCENTS.includes(accent)) {
+        return res.status(400).json({ error: 'Такого цвета нет, выберите из списка' });
+    }
+    try {
+        await pool.query('UPDATE users SET accent = $1 WHERE id = $2', [accent, req.user.id]);
+        res.json({ accent });
+    } catch (err) {
+        noteError(res, err);
+        res.status(500).json({ error: 'Не удалось сохранить цвет, попробуйте ещё раз' });
+    }
+}
+
+module.exports = { requestLink, peekLink, verifyLink, verifyCode, logout, getMe, setAccent, normalizeEmail };
