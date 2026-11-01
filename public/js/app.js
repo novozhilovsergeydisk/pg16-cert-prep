@@ -14,7 +14,7 @@
     let finishText = FINISH_PORTION;
     let finishHint = NEXT_PORTION_HINT;
     // Практикумы по темам (docs/practice); ссылка на итоге порции, если верных меньше PRACTICE_BELOW.
-    const PRACTICE_TOPICS = ['05', '06', '07', '08', '09', '10', '11', '12', '13', '17'];
+    const PRACTICE_TOPICS = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13', '17'];
     const PRACTICE_BELOW = 0.7;
     let finishPractice = null;
     // Число верных ответов в текущей порции или в работе над ошибками.
