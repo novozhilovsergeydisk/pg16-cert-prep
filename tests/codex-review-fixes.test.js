@@ -7,6 +7,7 @@ const { later } = require('./later-fixes');
 after(() => pool.end());
 
 // Ключи этих вопросов на момент проверки Codex: исправления 060 меняют только пояснения.
+// Поздние правки (например, 126) могут переименовать вопрос, сменить ключ или пояснение: итог берётся по цепочке later.
 const keys = {
     'Где хранятся в памяти последние страницы clog?': 'A',
     'Что произойдёт, если не выполнять заморозку своевременно?': 'A',
@@ -19,14 +20,23 @@ test('Исправления 060: новые пояснения в базе, п�
     assert.equal(fixes.length, 5);
     assert.deepEqual(fixes.map((f) => f.q).sort(), Object.keys(keys).sort());
     for (const f of fixes) {
+        let name = f.q;
+        let key = keys[f.q];
+        let explanation = f.new;
+        for (const g of later) {
+            if (g.q !== name) continue;
+            if (g.kind === 'question') name = g.new;
+            else if (g.kind === 'key' && g.old === key) key = g.new;
+            else if (g.kind === 'explanation' && f.kind === 'explanation' && g.old === explanation) explanation = g.new;
+        }
         const { rows } = await pool.query(
-            'SELECT options, correct_answer, explanation, option_notes FROM questions WHERE question_text = $1', [f.q]);
+            'SELECT options, correct_answer, explanation, option_notes FROM questions WHERE question_text = $1', [name]);
         assert.equal(rows.length, 1, 'Нужна миграция 060: ' + f.q.slice(0, 50));
         const q = rows[0];
-        assert.equal(q.correct_answer, keys[f.q], 'Ключ изменился: ' + f.q.slice(0, 50));
+        assert.equal(q.correct_answer, key, 'Ключ изменился: ' + f.q.slice(0, 50));
         assert.equal(Object.keys(q.options).length, 4);
         if (f.kind === 'explanation') {
-            assert.equal(q.explanation, f.new);
+            assert.equal(q.explanation, explanation);
         } else {
             // Поздние правки (например, 065) могли переписать сам вариант или его пояснение: идём по цепочке.
             let text = f.opt;

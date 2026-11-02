@@ -13,9 +13,12 @@ for (const fix of data.fixes) {
         question: fix.q && fix.new && fix.q !== fix.new,
         explanation: fix.q && fix.old && fix.new && fix.old !== fix.new,
         option: fix.q && fix.opt && (fix.newOpt || fix.newNote) && (!fix.newNote || (fix.oldNote && fix.oldNote !== fix.newNote)),
+        key: fix.q && /^[A-E]+$/.test(fix.old || '') && /^[A-E]+$/.test(fix.new || '') && fix.old !== fix.new,
     }[fix.kind];
     if (!ok) throw new Error('неверное описание исправления: ' + JSON.stringify(fix).slice(0, 80));
 }
+
+const changesKeys = data.fixes.some((fix) => fix.kind === 'key');
 
 // kind, question_text, opt_text, new_opt_text, old_text, new_text
 const rows = data.fixes.map((fix) => `        (${[
@@ -25,7 +28,9 @@ const rows = data.fixes.map((fix) => `        (${[
 const sql = `-- ${data.header}
 -- Источник: ${path.relative(path.join(__dirname, '..'), dataFile)}
 -- Повторный запуск безопасен: вопрос и вариант ищутся по тексту, прежнее или уже новое значение допустимо,
--- иначе пакет отменяется. Ключи ответов, число и порядок вариантов не меняются.
+-- иначе пакет отменяется. ${changesKeys
+        ? 'Ключ ответа меняется только правкой вида key, прежний ключ проверяется; число и порядок вариантов не меняются.'
+        : 'Ключи ответов, число и порядок вариантов не меняются.'}
 
 BEGIN;
 SET LOCAL standard_conforming_strings = on;
@@ -47,7 +52,11 @@ ${rows.join(',\n')}
         ELSIF fix.kind = 'explanation' THEN
             PERFORM 1 FROM questions WHERE id = qid AND explanation IN (fix.old_text, fix.new_text);
             IF NOT FOUND THEN RAISE EXCEPTION 'Неожиданное пояснение вопроса'; END IF;
-            UPDATE questions SET explanation = fix.new_text WHERE id = qid;
+            UPDATE questions SET explanation = fix.new_text WHERE id = qid;${changesKeys ? `
+        ELSIF fix.kind = 'key' THEN
+            PERFORM 1 FROM questions WHERE id = qid AND correct_answer IN (fix.old_text, fix.new_text);
+            IF NOT FOUND THEN RAISE EXCEPTION 'Неожиданный ключ ответа'; END IF;
+            UPDATE questions SET correct_answer = fix.new_text WHERE id = qid;` : ''}
         ELSE
             SELECT count(*), min(o.key) INTO matches, k
             FROM questions q, jsonb_each_text(q.options) o

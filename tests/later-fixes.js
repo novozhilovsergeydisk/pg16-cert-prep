@@ -1,4 +1,4 @@
-// Накладывает более поздние исправления (054–056, 060–062, 064–099, 101–103, 105, 109, 110, 112, 114, 116, 118, 120, 121, 123, 124) на вопрос из исходника набора: тесты сверяют базу с итоговым текстом,
+// Накладывает более поздние исправления (054–056, 060–062, 064–099, 101–103, 105, 109, 110, 112, 114, 116, 118, 120, 121, 123, 124, 126) на вопрос из исходника набора: тесты сверяют базу с итоговым текстом,
 // а уже выложенные миграции наборов остаются неизменными.
 const later = [
     ...require('../scripts/questions/054_sections_review_fixes').fixes,
@@ -57,11 +57,13 @@ const later = [
     ...require('../scripts/questions/121_second_round_topics05_16').fixes,
     ...require('../scripts/questions/123_q2241_wording').fixes,
     ...require('../scripts/questions/124_second_round_topics18_20').fixes,
+    ...require('../scripts/questions/126_multi_topics06_07_12_16').fixes,
 ];
 
 module.exports = function withLaterFixes(item) {
     let q = item.q;
     let e = item.e;
+    let kind = item.kind;
     const opts = item.opts.map(([text, ok, note]) => [text, ok, note]);
     // Исправления применяются по порядку: каждое видит вопрос под тем именем, какое он имел к этому моменту.
     for (const f of later) {
@@ -74,8 +76,13 @@ module.exports = function withLaterFixes(item) {
             if (f.newNote && opt[2] === f.oldNote) opt[2] = f.newNote;
             if (f.newOpt) opt[0] = f.newOpt;
         }
+        // Новый ключ: верные варианты — по буквам ключа, вопрос с несколькими ответами становится multi.
+        if (f.kind === 'key') {
+            opts.forEach((o, i) => { o[1] = f.new.includes('ABCDE'[i]); });
+            if (kind !== 'code') kind = f.new.length > 1 ? 'multi' : 'single';
+        }
     }
-    return { ...item, q, e, opts };
+    return { ...item, kind, q, e, opts };
 };
 
 // Все поздние исправления: тесты прежних миграций учитывают их при проверке итогового текста.
