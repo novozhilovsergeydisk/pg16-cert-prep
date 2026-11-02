@@ -1,4 +1,4 @@
-// Накладывает более поздние исправления (054–056, 060–062, 064–099, 101–103, 105, 109, 110, 112, 114, 116, 118, 120, 121, 123) на вопрос из исходника набора: тесты сверяют базу с итоговым текстом,
+// Накладывает более поздние исправления (054–056, 060–062, 064–099, 101–103, 105, 109, 110, 112, 114, 116, 118, 120, 121, 123, 124) на вопрос из исходника набора: тесты сверяют базу с итоговым текстом,
 // а уже выложенные миграции наборов остаются неизменными.
 const later = [
     ...require('../scripts/questions/054_sections_review_fixes').fixes,
@@ -56,6 +56,7 @@ const later = [
     ...require('../scripts/questions/120_oddities_topics18_20').fixes,
     ...require('../scripts/questions/121_second_round_topics05_16').fixes,
     ...require('../scripts/questions/123_q2241_wording').fixes,
+    ...require('../scripts/questions/124_second_round_topics18_20').fixes,
 ];
 
 module.exports = function withLaterFixes(item) {
