@@ -197,7 +197,7 @@ if (exportDir) {
     fs.writeFileSync(path.join(abs, 'work', 'batch.json'), JSON.stringify(out.map((x, i) =>
         ({ id: id(i), topic: x.t, choose: x.correct.length, question: x.q, options: x.options })), null, 1));
     fs.writeFileSync(path.join(abs, 'work', 'notes.json'), JSON.stringify(out.map((x, i) =>
-        ({ id: id(i), topic: x.t, question: x.q, options: x.options, correct: x.correct, option_notes: x.notes })), null, 1));
+        ({ id: id(i), topic: x.t, question: x.q, options: x.options, correct: x.correct, explanation: x.e, option_notes: x.notes })), null, 1));
     fs.writeFileSync(path.join(abs, 'keys.json'), JSON.stringify(Object.fromEntries(out.map((x, i) => [id(i), x.correct]))));
     fs.writeFileSync(path.join(abs, 'questions.json'), JSON.stringify(out.map((x, i) => ({ id: id(i), ...x })), null, 1));
     console.log(`материалы для проверки: ${abs}/work (без ключей в batch.json), ключи: ${abs}/keys.json`);
