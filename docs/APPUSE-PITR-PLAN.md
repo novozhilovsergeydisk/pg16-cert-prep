@@ -2,7 +2,7 @@
 
 Дата плана: 05.11.2026. Статус: **не начато** — этапы A–G ниже ещё не выполнялись, на серверах ничего не менялось.
 
-Цель: непрерывное архивирование WAL и еженедельные базовые копии кластера PostgreSQL 16/main сервера `appuse`
+Цель: непрерывное архивирование WAL и ежедневные базовые копии кластера PostgreSQL 16/main сервера `appuse`
 на сервер `vpn-amsterdam`, с возможностью восстановления на любой момент времени (PITR) и проверкой восстановления.
 
 Порядок работы: команды выполняет пользователь в своём терминале на Mac, по одному шагу, и присылает вывод.
@@ -32,13 +32,13 @@
 2. Только штатные средства PostgreSQL: `archive_command` → `gzip` → `rsync` по SSH; `pg_basebackup`;
    `pg_archivecleanup`. pgBackRest не используем.
 3. `apt install rsync` на Амстердаме — да.
-4. Хранить **две последние недельные копии** и WAL, нужный для них (около 14 дней).
+4. Базовая копия **раз в день** (решение 05.11.2026, вместо раза в неделю); хранить **14 последних ежедневных копий** и WAL, нужный для них — окно восстановления 14 дней.
 5. `archive_timeout = 300` — потеря не больше 5 минут работы.
 6. Контроль архива с уведомлением в **Telegram**.
 7. Перезапуск 16/main (нужен для `archive_mode = on`) — **ночью**.
 
 Ожидаемый объём в Амстердаме: WAL ~10–20 МБ в сутки после сжатия (закрытый по таймеру сегмент почти весь из
-нулей), ~300 МБ за 14 дней; две базовые копии ~100 МБ. Итого меньше 0,5 ГБ.
+нулей), ~300 МБ за 14 дней; 14 базовых копий по ~50 МБ — ~700 МБ. Итого около 1 ГБ из 4,4 ГБ свободных.
 
 ## Схема
 
@@ -160,28 +160,28 @@ ssh vpn-amsterdam 'ls -lh /srv/pgbackup/appuse/wal | tail -5'
 
 ## E. Базовые копии и срок хранения
 
-**E1. Скрипт базовой копии на appuse** `/usr/local/bin/pg-base-backup` (запуск от postgres по cron раз в неделю,
-например в воскресенье в 03:30). `-X none` — WAL берётся из архива. В конце — метка успешной копии для контроля (F).
+**E1. Скрипт базовой копии на appuse** `/usr/local/bin/pg-base-backup` (запуск от postgres по cron каждый день
+в 03:30). `-X none` — WAL берётся из архива. В конце — метка успешной копии для контроля (F).
 ```sh
 #!/bin/sh
 set -eu
 stamp=$(date +%Y%m%d-%H%M%S)
 dir=/var/lib/postgresql/basebackup-tmp/$stamp
 mkdir -p -m 700 "$dir"
-pg_basebackup -D "$dir" -Ft -z -X none -c fast -l "weekly $stamp"
+pg_basebackup -D "$dir" -Ft -z -X none -c fast -l "daily $stamp"
 rsync -r --fsync --timeout=600 "$dir" pgarchive:base/
 rm -rf "$dir"
 touch /var/lib/postgresql/.last-basebackup-ok
 ```
 Первую копию снять вручную сразу после этапа D.
 
-**E2. Срок хранения на Амстердаме** `/usr/local/bin/pg-archive-retention` (cron root ежедневно): оставить две
-последние базовые копии, удалить WAL старше начала самой старой из них.
+**E2. Срок хранения на Амстердаме** `/usr/local/bin/pg-archive-retention` (cron root ежедневно в 05:00, после прихода
+копии): оставить 14 последних базовых копий, удалить WAL старше начала самой старой из них.
 ```sh
 #!/bin/sh
 set -eu
 B=/srv/pgbackup/appuse/base; W=/srv/pgbackup/appuse/wal
-ls -1d "$B"/*/ 2>/dev/null | sort | head -n -2 | xargs -r rm -rf
+ls -1d "$B"/*/ 2>/dev/null | sort | head -n -14 | xargs -r rm -rf
 oldest=$(ls -1d "$B"/*/ 2>/dev/null | sort | head -1)
 [ -n "$oldest" ] || exit 0
 seg=$(tar -xzOf "$oldest/base.tar.gz" backup_label | sed -n 's/^START WAL LOCATION: .*(file \([0-9A-F]*\)).*/\1/p')
@@ -192,8 +192,8 @@ seg=$(tar -xzOf "$oldest/base.tar.gz" backup_label | sed -n 's/^START WAL LOCATI
 ## F. Контроль архива → Telegram
 
 Скрипт на appuse `/usr/local/bin/pg-archive-alert`, cron postgres каждые 5 минут. Сигнал «плохо»: в
-`pg_wal/archive_status` больше 12 файлов `*.ready` (час неотправленных сегментов) или метке последней базовой копии
-больше 8 дней. Сообщение уходит только при смене состояния (плохо → хорошо и обратно).
+`pg_wal/archive_status` больше 12 файлов `*.ready` (час неотправленных сегментов) или последней удачной базовой копии
+больше 36 часов (пропущена ночь). Сообщение уходит только при смене состояния (плохо → хорошо и обратно).
 
 Токен и чат — в файле `/etc/pg-archive-alert.env` (`root:postgres`, права 640), переменные `TG_TOKEN`, `TG_CHAT`.
 Файл заполняет пользователь сам, значения на экран не выводятся. Токен передаётся `curl` через `--config -`,
@@ -205,8 +205,8 @@ set -u
 ready=$(find /var/lib/postgresql/16/main/pg_wal/archive_status -name '*.ready' | wc -l)
 state=ok; why=""
 [ "$ready" -gt 12 ] && { state=fail; why="не отправлено сегментов WAL: $ready"; }
-if [ -z "$(find /var/lib/postgresql/.last-basebackup-ok -mtime -8 2>/dev/null)" ]; then
-  state=fail; why="$why; базовой копии больше 8 дней"
+if [ -z "$(find /var/lib/postgresql/.last-basebackup-ok -mmin -2160 2>/dev/null)" ]; then
+  state=fail; why="$why; базовой копии больше 36 часов"
 fi
 st=/var/lib/postgresql/.archive-alert-state
 prev=$(cat "$st" 2>/dev/null || echo ok)
@@ -218,7 +218,7 @@ data-urlencode = "chat_id=${TG_CHAT}"
 data-urlencode = "text=${msg}"
 CFG
 ```
-Включать после первой базовой копии (E1), иначе сразу сработает «копии больше 8 дней».
+Включать после первой базовой копии (E1), иначе сразу сработает «копии больше 36 часов».
 Бот: **@FlowboxNotifyBot** (указан пользователем 05.11.2026). Чат: **личный чат пользователя с ботом** (решение 05.11.2026);
 перед получением номера чата пользователь пишет боту `/start`. Токен пользователь сам вписывает в
 `/etc/pg-archive-alert.env`. Номер чата узнать
@@ -243,3 +243,4 @@ CFG
 ## Ход работ
 
 - 05.11.2026 — осмотр, решения, этот план. Этапы A–G не начаты.
+- 05.11.2026 — базовая копия раз в день вместо раза в неделю, хранить 14 копий; контроль — копии не старше 36 часов.
