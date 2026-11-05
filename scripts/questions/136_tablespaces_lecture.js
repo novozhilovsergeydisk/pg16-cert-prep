@@ -1,0 +1,99 @@
+// Раздел «10. Табличные пространства» (входит в экзамен): девять вопросов по пробелам, найденным при сверке
+// с лекцией курса DBA1 по теме 10: пустой tablespace в pg_tables, default_tablespace, temp_tablespaces, блокировка
+// при SET TABLESPACE, REINDEX (TABLESPACE), ALTER TABLE ALL IN TABLESPACE, размер ТП с каталогом базы, освобождение ТП
+// перед DROP TABLESPACE, ошибка ALTER DATABASE SET TABLESPACE. Ориентир — PostgreSQL 16. Факты проверены на временном кластере 05.11.2026.
+// Пересборка: node scripts/gen-questions.js scripts/questions/136_tablespaces_lecture.js
+const { S, M, C, questions } = require('../lib/question-builder')();
+const docs = 'https://www.postgresql.org/docs/16/';
+const source = (...pages) => { questions.at(-1).sources = pages; };
+
+// 1. Пустой tablespace в pg_tables
+S('10', 'База appdb создана с TABLESPACE ts. В pg_tables у таблицы t1 столбец tablespace пустой, у t2 — pg_default. Где лежат файлы t1?', [
+    ['В ts, табличном пространстве по умолчанию базы', true, 'Пустое значение означает ТП по умолчанию базы: в pg_class у такой таблицы reltablespace = 0.'],
+    ['В pg_default, как у большинства баз кластера', false, 'Без TABLESPACE база получает ТП шаблона, обычно template1, а у appdb явно задано ts.'],
+    ['Нигде: файлы появятся после первой вставки', false, 'Файл основного слоя создаётся сразу при CREATE TABLE, у пустой таблицы тоже.'],
+    ['В pg_global, вместе с системным каталогом', false, 'В pg_global лежат общие объекты каталога кластера, а каталог базы — в её ТП по умолчанию.'],
+], 'Если таблица лежит в ТП по умолчанию своей базы, в pg_class.reltablespace записывается 0, и pg_tables показывает пустое значение. Так же записывается таблица, созданная при default_tablespace, совпадающем с ТП базы.');
+source(docs + 'view-pg-tables.html', docs + 'catalog-pg-class.html');
+
+// 2. default_tablespace
+S('10', 'В базе appdb (ТП по умолчанию pg_default) выполнили SET default_tablespace = ts (ТП ts существует, право CREATE на него есть), затем CREATE TABLE t (id int) без TABLESPACE. Где окажется таблица?', [
+    ['В ts: параметр задаёт ТП для новых объектов', true, 'default_tablespace действует на таблицы и индексы, созданные без TABLESPACE.'],
+    ['В pg_default: ТП базы важнее параметра сеанса', false, 'Наоборот: параметр сеанса важнее ТП по умолчанию базы.'],
+    ['В pg_default до переподключения к базе', false, 'SET действует сразу, в текущем сеансе.'],
+    ['В ts, а будущие индексы — в pg_default', false, 'Индексы, созданные без TABLESPACE, тоже попадут в ts, в том числе индекс первичного ключа.'],
+], 'Пустое значение default_tablespace означает ТП по умолчанию базы. Для временных таблиц и временных файлов действует не он, а temp_tablespaces.');
+source(docs + 'runtime-config-client.html');
+
+// 3. temp_tablespaces
+M('10', 'В сеансе выполнили SET temp_tablespaces = ts1, ts2 и создали несколько временных таблиц без явного TABLESPACE. Что верно?', [
+    ['Каждая таблица создастся в ts1 или в ts2', true, 'Для каждого нового временного объекта сервер выбирает пространство из списка; внутри одной транзакции — по очереди.'],
+    ['Временные файлы сортировок тоже лягут в ts1 или ts2', true, 'Параметр задаёт место и для временных таблиц, и для временных файлов сортировки и хеширования.'],
+    ['Все таблицы создадутся в ts1, пока там есть место', false, 'Сервер не заполняет пространства по очереди до конца, а выбирает для каждого объекта; свободное место не учитывается.'],
+    ['Постоянные таблицы сеанса тоже создадутся в ts1 или ts2', false, 'Для постоянных объектов действует default_tablespace, а не temp_tablespaces.'],
+], 'Пустой temp_tablespaces означает ТП по умолчанию текущей базы. При нескольких ТП сервер выбирает одно случайно, а следующие временные объекты той же транзакции кладёт по очереди. В опыте шесть таблиц, созданных отдельными командами, распределились случайно, четыре в одном блоке BEGIN … COMMIT — поочерёдно.');
+source(docs + 'runtime-config-client.html');
+
+// 4. ALTER TABLE SET TABLESPACE на большой таблице
+M('10', 'Таблицу orders размером 200 ГБ переносят командой ALTER TABLE orders SET TABLESPACE archive. Команда уже получила блокировку и копирует данные. Что верно?', [
+    ['Файлы таблицы копируются в ТП archive', true, 'Это физический перенос данных, длительность зависит от размера таблицы.'],
+    ['SELECT из других сеансов ждут снятия блокировки', true, 'Команда держит ACCESS EXCLUSIVE, она несовместима даже с чтением. Блокировка снимается в конце транзакции, а не сразу по окончании копирования.'],
+    ['Чтение продолжается, а INSERT и UPDATE ждут', false, 'ACCESS EXCLUSIVE конфликтует со всеми режимами, в том числе с ACCESS SHARE у SELECT.'],
+    ['Меняется запись в каталоге, данные остаются на месте', false, 'Так работает SET SCHEMA, а SET TABLESPACE переписывает файлы.'],
+], 'Индексы таблицы при этом остаются на месте, их переносят отдельно: ALTER INDEX ... SET TABLESPACE или REINDEX с параметром TABLESPACE. Перенос большой таблицы планируют на окно обслуживания.');
+source(docs + 'sql-altertable.html', docs + 'explicit-locking.html');
+
+// 5. REINDEX (TABLESPACE)
+C('10', 'Допишите команду, чтобы перестроить индекс orders_idx и сразу разместить его в табличном пространстве fast:', 'REINDEX (___ fast) INDEX orders_idx;', [
+    ['`TABLESPACE`', true, 'Параметр TABLESPACE у REINDEX появился в 14-й версии.'],
+    ['`LOCATION`', false, 'LOCATION задаёт каталог в CREATE TABLESPACE, у REINDEX такого параметра нет.'],
+    ['`SET TABLESPACE`', false, 'SET TABLESPACE — форма ALTER TABLE и ALTER INDEX, а не параметр REINDEX.'],
+    ['`MOVE`', false, 'Такого параметра у REINDEX нет.'],
+], 'REINDEX с параметром TABLESPACE строит индекс заново сразу в новом пространстве. ALTER INDEX ... SET TABLESPACE копирует файлы индекса без перестройки.');
+source(docs + 'sql-reindex.html');
+
+// 6. ALTER TABLE ALL IN TABLESPACE
+S('10', 'В базе appdb выполнили ALTER TABLE ALL IN TABLESPACE ts SET TABLESPACE pg_default. Что переедет в pg_default?', [
+    ['Таблицы appdb из ts вместе с их toast-таблицами', true, 'Команда переносит таблицы текущей базы; toast-таблица переезжает вместе со своей таблицей.'],
+    ['Таблицы и индексы всех баз, лежащие в ts', false, 'Команда работает в текущей базе; объекты других баз переносят, подключившись к ним.'],
+    ['Таблицы appdb из ts вместе с их индексами', false, 'Индексы таблиц остаются в своих ТП; для массового переноса индексов есть ALTER INDEX ALL IN TABLESPACE.'],
+    ['Все объекты appdb из ts, включая системный каталог', false, 'Таблицы каталога эта команда не переносит, для этого есть ALTER DATABASE ... SET TABLESPACE.'],
+], 'Команда сначала получает блокировки всех переносимых таблиц, затем переносит их по одной. OWNED BY ограничивает перенос таблицами указанных ролей, с NOWAIT команда сразу завершится ошибкой, если какую-то блокировку не получить.');
+source(docs + 'sql-altertable.html');
+
+// 7. Размер ТП с каталогом базы
+S('10', 'База appdb создана с TABLESPACE ts, в ней две пустые таблицы. pg_tablespace_size(\'ts\') показывает около 7 МБ. Откуда этот объём?', [
+    ['В ts лежит системный каталог базы appdb', true, 'Каталог базы хранится в её ТП по умолчанию и уже у пустой базы занимает несколько мегабайт.'],
+    ['Сервер заранее резервирует место под новые таблицы', false, 'Файлы таблиц растут по мере записи, заранее место не выделяется.'],
+    ['В размер ТП входит копия общего каталога pg_global', false, 'Общие объекты каталога лежат в PGDATA/global и не копируются в другие ТП.'],
+    ['Так выглядят файлы WAL этих двух таблиц', false, 'Журнал лежит в PGDATA/pg_wal и в размер ТП не входит.'],
+], 'Поэтому, чтобы освободить ТП и сохранить базу, её переносят командой ALTER DATABASE ... SET TABLESPACE. Размер всех ТП показывает и команда \\db+.');
+source(docs + 'functions-admin.html', docs + 'manage-ag-tablespaces.html');
+
+// 8. Как освободить ТП перед DROP TABLESPACE
+M('10', 'Нужно удалить табличное пространство ts. Оно — ТП по умолчанию базы appdb, которую надо сохранить; в нём лежат и таблицы базы cfg. Объектов appdb в pg_default нет. Какие действия подходят для подготовки?', [
+    ['Узнать базы с объектами в ts через pg_tablespace_databases', true, 'Функция возвращает OID баз, у которых есть объекты в этом ТП.'],
+    ['В cfg перенести или удалить все объекты из ts', true, 'Индексы переносят отдельно от таблиц, при удалении таблицы они удаляются вместе с ней. Перед DROP TABLESPACE в ts не должно остаться объектов других баз.'],
+    ['Сменить ТП базы: ALTER DATABASE appdb SET TABLESPACE pg_default', true, 'Команду выполняют из другой базы вне блока транзакции, когда к appdb нет подключений. Она переносит в pg_default всё из прежнего ТП базы, включая системный каталог.'],
+    ['Выполнить DROP TABLESPACE ts CASCADE из любой базы', false, 'У DROP TABLESPACE нет CASCADE: пространство удаляется, только когда в нём нет объектов ни одной базы.'],
+    ['В appdb хватит ALTER TABLE ALL IN TABLESPACE ts SET TABLESPACE pg_default', false, 'Это перенесёт таблицы appdb, но не её индексы и каталог, а таблицы cfg останутся.'],
+], 'DROP TABLESPACE удаляет пространство, только когда в нём нет объектов ни одной базы. Порядок из демонстрации курса: pg_tablespace_databases, затем перенос или удаление объектов в каждой базе, для базы с ТП по умолчанию ts — ALTER DATABASE ... SET TABLESPACE из другой базы, потом DROP TABLESPACE.');
+source(docs + 'functions-info.html', docs + 'sql-droptablespace.html', docs + 'sql-alterdatabase.html');
+
+// 9. Ошибка ALTER DATABASE SET TABLESPACE
+S('10', 'ТП по умолчанию базы appdb — ts. Команда ALTER DATABASE appdb SET TABLESPACE pg_default завершилась ошибкой «некоторые отношения базы данных appdb уже находятся в табличном пространстве pg_default». Подключений к appdb нет. Что делать?', [
+    ['Вернуть эти отношения в текущее ТП базы и повторить', true, 'Команда переносит всё из старого ТП по умолчанию, и в новом не должно быть отношений этой базы. После возврата они переедут вместе с остальными.'],
+    ['Повторить команду, когда завершатся сеансы в appdb', false, 'Сеансы дали бы другую ошибку: база занята другими пользователями.'],
+    ['Добавить к команде CASCADE, чтобы перенести их тоже', false, 'У ALTER DATABASE ... SET TABLESPACE нет CASCADE.'],
+    ['Удалить из pg_default каталог с OID базы appdb', false, 'Править файлы вручную нельзя: в каталоге лежат действующие отношения базы.'],
+], 'В appdb вернуть отношения командами ALTER TABLE ALL, ALTER INDEX ALL и ALTER MATERIALIZED VIEW ALL IN TABLESPACE pg_default SET TABLESPACE ts. Затем отключиться от appdb и повторить ALTER DATABASE из другой базы. В опыте после этого команда прошла, и DROP TABLESPACE удалил опустевшее пространство.');
+source(docs + 'sql-alterdatabase.html');
+
+module.exports = {
+    migration: '136_tablespaces_lecture',
+    header: 'Девять вопросов раздела «10. Табличные пространства» по сверке с лекцией: пустой tablespace в pg_tables, default_tablespace, temp_tablespaces, блокировка при SET TABLESPACE, REINDEX (TABLESPACE), ALTER TABLE ALL IN TABLESPACE, размер ТП с каталогом базы, освобождение ТП перед DROP TABLESPACE, ошибка ALTER DATABASE SET TABLESPACE; пояснения к каждому варианту.',
+    seed: 20261112,
+    target: { '10': 9 },
+    strictInsert: true,
+    questions,
+};
