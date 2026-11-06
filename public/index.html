@@ -11,7 +11,9 @@
 <body>
     <main>
         <h1>Тренажёр сертификации PostgreSQL 16</h1>
-        <div id="user-bar" class="user-bar" hidden>
+        <details id="user-bar" class="user-bar profile-menu" hidden>
+            <summary>Профиль</summary>
+            <div class="profile-panel">
             <label class="accent-picker">Тема
                 <select id="theme-select">
                     <option value="auto">Как в системе</option>
@@ -28,8 +30,16 @@
                 </select>
             </label>
             <span id="user-email" class="user-email"></span>
+            <button id="open-admin" class="btn-secondary" type="button" hidden>Статистика пользователей</button>
             <button id="logout" class="btn-secondary" type="button">Выйти</button>
-        </div>
+            </div>
+        </details>
+        <nav id="main-nav" class="main-nav" aria-label="Основные разделы" hidden>
+            <a id="nav-training" href="#/training">Тренировка</a>
+            <a id="open-exam" href="#/exam">Экзамен</a>
+            <a id="nav-ai" href="#/ai" hidden>ИИ-помощник</a>
+            <a id="nav-results" href="#/results">Результаты</a>
+        </nav>
         <div id="error" role="alert" hidden></div>
 
         <section id="login-view" hidden>
@@ -75,20 +85,27 @@
                 </div>
             </div>
             <div class="actions top-actions">
-                <button id="open-exam" class="btn" type="button">Экзамен</button>
                 <button id="open-mistakes" class="btn-secondary" type="button">Работа над ошибками</button>
-                <button id="open-history" class="btn-secondary" type="button">История экзаменов</button>
-                <button id="open-training-history" class="btn-secondary" type="button">История тренировок</button>
-                <button id="open-stats" class="btn-secondary" type="button">Моя статистика</button>
-                <button id="open-admin" class="btn-secondary" type="button" hidden>Статистика пользователей</button>
             </div>
             <div class="mode-switch" role="group" aria-label="Режим">
                 <button id="mode-train" class="mode-btn active" type="button" aria-pressed="true">Тренировка</button>
                 <button id="mode-check" class="mode-btn" type="button" aria-pressed="false">Подходит или нет</button>
             </div>
-            <div id="ai-home" hidden></div>
             <h2>Категории</h2>
             <ul id="categories" class="cards"></ul>
+        </section>
+
+        <section id="ai-view" hidden>
+            <h2 tabindex="-1">ИИ-помощник</h2>
+            <div id="ai-home" hidden></div>
+        </section>
+        <section id="results-view" hidden>
+            <h2 tabindex="-1">Результаты</h2>
+            <div class="result-links">
+                <button id="open-stats" class="btn-secondary" type="button">Моя статистика</button>
+                <button id="open-training-history" class="btn-secondary" type="button">История тренировок</button>
+                <button id="open-history" class="btn-secondary" type="button">История экзаменов</button>
+            </div>
         </section>
 
         <section id="question-view" hidden>
@@ -170,14 +187,14 @@
         </section>
 
         <section id="history-view" hidden>
-            <button id="history-back" class="btn-secondary" type="button">К списку категорий</button>
+            <button id="history-back" class="btn-secondary" type="button">К результатам</button>
             <h2>История экзаменов</h2>
             <p id="history-empty" class="progress" hidden>Пока нет пройденных экзаменов.</p>
             <ul id="history-list" class="plain"></ul>
         </section>
 
         <section id="stats-view" hidden>
-            <button id="stats-back" class="btn-secondary back" type="button">К списку категорий</button>
+            <button id="stats-back" class="btn-secondary back" type="button">К результатам</button>
             <h2>Моя статистика: практика по темам</h2>
             <div class="table-wrap">
                 <table class="stats-table">
@@ -188,7 +205,7 @@
         </section>
 
         <section id="training-history-view" hidden>
-            <button id="training-history-back" class="btn-secondary back" type="button">К списку категорий</button>
+            <button id="training-history-back" class="btn-secondary back" type="button">К результатам</button>
             <h2>История тренировок</h2>
             <p class="progress">Здесь сохраняются выданные порции, включая вопросы без ответа. Старые тренировки, пройденные до появления истории, в список не входят.</p>
             <p id="training-history-empty" class="progress" hidden>Пока нет сохранённых тренировок.</p>

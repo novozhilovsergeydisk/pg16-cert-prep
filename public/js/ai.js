@@ -7,13 +7,21 @@
         const post = (url, body) => api(url, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
         });
-        function reset() {
+        function reset({ preserveGeneral = false } = {}) {
             revision += 1;
-            containers.forEach((node) => { node.textContent = ''; node.hidden = true; });
+            containers.forEach((node) => {
+                if (preserveGeneral && node === generalContainer) return;
+                node.textContent = ''; node.hidden = true;
+            });
             containers.clear();
         }
+        let generalContainer = null;
+        let generalMounted = false;
         function setUser(user) {
             reset();
+            if (generalContainer) { generalContainer.textContent = ''; generalContainer.hidden = true; }
+            generalContainer = null;
+            generalMounted = false;
             const version = ++accountRevision;
             availability = user ? api('/api/ai/status').then((data) => version === accountRevision && data.enabled)
                 .catch(() => false) : Promise.resolve(false);
@@ -51,11 +59,14 @@
 
         async function offer(container, context) {
             const standalone = context.mode === 'general';
+            if (standalone && generalMounted && generalContainer === container) return;
+            const account = accountRevision;
             const version = revision;
             containers.add(container);
             container.hidden = true;
             container.textContent = '';
             if ((!standalone && !context.batch_id) || !await availability || version !== revision) return;
+            if (standalone) { generalContainer = container; generalMounted = true; }
             container.className = 'ai-assistant';
             let scope = standalone ? 'general' : 'question';
             let dialogRevision = 0;
@@ -98,7 +109,7 @@
             container.append(modes, start, status, history, sources, form);
             if (standalone) {
                 modes.remove();
-                container.prepend(element('h2', '', 'Спросить ИИ'));
+                if (!container.closest('#ai-view')) container.prepend(element('h2', '', 'Спросить ИИ'));
             }
             container.hidden = false;
             let conversation = null;
@@ -124,9 +135,10 @@
                 history.appendChild(message);
             }
             async function submit(first) {
-                if (busy || version !== revision) return;
+                const sameScreen = () => standalone ? account === accountRevision : version === revision;
+                if (busy || !sameScreen()) return;
                 const dialogVersion = dialogRevision;
-                const current = () => version === revision && dialogVersion === dialogRevision;
+                const current = () => sameScreen() && dialogVersion === dialogRevision;
                 const message = input.value.trim();
                 if (!pending && (!first || scope === 'general') && !message) return;
                 if (!pending) pending = { first, message, request_id: crypto.randomUUID() };
@@ -205,6 +217,6 @@
             });
             if (standalone) newDialogue();
         }
-        return { reset, setUser, offer };
+        return { reset, setUser, offer, isAvailable: () => availability };
     };
 })();

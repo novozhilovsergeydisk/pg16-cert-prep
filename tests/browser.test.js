@@ -94,6 +94,7 @@ test('История порций: браузер показывает сохр�
     await page.locator('#next').click();
     assert.equal(await page.locator('#question-text').textContent(), stored[1].question_text.replace(/```\n?|`/g, '').trim());
     await back(page);
+    await page.locator('#nav-results').click();
     await page.locator('#open-training-history').click();
     await page.locator('.training-history-item').first().waitFor();
     await page.locator('.training-history-item').first().click();
@@ -123,6 +124,7 @@ test('Запоздалая выдача порции не закрывает о�
     const held = await holdRequest(t, page, '**/api/training/batches');
     await page.locator('#categories .card').filter({ hasText: '01.' }).click();
     await held.reached;
+    await page.locator('#nav-results').click();
     await page.locator('#open-training-history').click();
     await page.locator('#training-history-view').waitFor({ state: 'visible' });
     await held.release();
@@ -509,7 +511,7 @@ test('Экзамен: срок истекает во время отправки
         localStorage.setItem(key, JSON.stringify(data));
     });
     await page.reload();
-    await page.locator('#exam-resume-continue').click();
+    await page.locator('#exam-view').waitFor({ state: 'visible' });
     const original = await savedExam(page);
     const held = await holdRequest(t, page, '**/api/exam/check', failure);
     await page.locator('#exam-finish').click();
@@ -549,7 +551,7 @@ test('Экзамен: сохранение и продолжение сохра�
     const firstAnswer = (await savedExam(page)).answers[0];
     await page.locator('#exam-next').click();
     await page.reload();
-    await page.locator('#exam-resume-continue').click();
+    await page.locator('#exam-view').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#exam-progress').textContent(), 'Вопрос 2 из 20');
     await page.locator('#exam-prev').click();
     assert.equal(await page.locator('#exam-options input:checked').getAttribute('value'), firstAnswer);
@@ -561,7 +563,7 @@ test('Экзамен: сохранение и продолжение сохра�
 test('Экзамен: отказ при завершении сохранённой попытки с главного экрана допускает повтор', async (t) => {
     const { page } = await pageFor(t);
     await startExam(page);
-    await page.reload();
+    await page.goto(base + '#/training');
     await page.route('**/api/exam/check', (route) => route.fulfill(failure), { times: 1 });
     await page.locator('#exam-resume-finish').click();
     await page.locator('#error').waitFor({ state: 'visible' });

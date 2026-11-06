@@ -3,7 +3,7 @@
 
     const VIEWS = ['login', 'login-sent', 'login-confirm', 'privacy', 'categories', 'question', 'finish',
         'exam-setup', 'exam', 'exam-result', 'history', 'training-history', 'training-batch', 'stats', 'admin', 'admin-user', 'material',
-        'option-check'];
+        'option-check', 'ai', 'results'];
     const EXAM_COUNTS = [20, 30, 50];
     const EXAM_DEFAULT_COUNT = 30;
     const SECONDS_PER_QUESTION = 90;
@@ -43,18 +43,88 @@
     let privacyReturn = 'login';
     let viewRevision = 0;
     const ai = typeof window.createAiAssistant === 'function' ? window.createAiAssistant({ api })
-        : { reset() {}, setUser() {}, offer() {} };
+        : { reset() {}, setUser() {}, offer() {}, isAvailable: () => Promise.resolve(false) };
     if (typeof window.createAiAssistant !== 'function') {
         queueMicrotask(() => reportClientError({ kind: 'js', source: 'ai.js' }));
     }
 
-    function show(name) {
-        ai.reset();
+    let activeView = null;
+    const lastViews = { training: 'categories', exam: 'exam-setup', ai: 'ai', results: 'results' };
+    const sectionScroll = new Map();
+    const sectionNames = { training: 'Тренировка', exam: 'Экзамен', ai: 'ИИ-помощник', results: 'Результаты' };
+    function sectionOf(name) {
+        if (['categories', 'question', 'option-check', 'finish', 'material'].includes(name)) return 'training';
+        if (['exam', 'exam-setup'].includes(name)) return 'exam';
+        if (name === 'ai') return 'ai';
+        if (['results', 'stats', 'history', 'training-history', 'training-batch', 'exam-result', 'admin', 'admin-user'].includes(name)) return 'results';
+        return null;
+    }
+
+    function show(name, { route = true } = {}) {
+        const previousSection = sectionOf(activeView);
+        const section = sectionOf(name);
+        if (previousSection && previousSection !== section) sectionScroll.set(previousSection, window.scrollY);
+        ai.reset({ preserveGeneral: Boolean(user) });
         viewRevision += 1;
+        activeView = name;
         VIEWS.forEach((key) => {
             $(key + '-view').hidden = key !== name;
         });
-        if (name === 'categories') ai.offer($('ai-home'), { mode: 'general' });
+        $('main-nav').hidden = !user;
+        $('user-bar').open = false;
+        if (user && section) {
+            lastViews[section] = name;
+            document.title = sectionNames[section] + ' · PostgreSQL 16';
+            document.querySelectorAll('#main-nav a').forEach((link) => {
+                if (link.hash === '#/' + section) link.setAttribute('aria-current', 'page');
+                else link.removeAttribute('aria-current');
+            });
+            if (route && location.hash !== '#/' + section) {
+                const method = location.hash.startsWith('#/') ? 'pushState' : 'replaceState';
+                history[method]({ section }, '', '#/' + section);
+            }
+            if (previousSection !== section) {
+                window.scrollTo(0, sectionScroll.get(section) || 0);
+                const heading = $(name + '-view').querySelector('h2');
+                if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+            }
+        }
+        if (name === 'ai') ai.offer($('ai-home'), { mode: 'general' });
+    }
+
+    async function navigateSection(section, fromHistory = false) {
+        if (!user || !Object.hasOwn(sectionNames, section)) return;
+        const actor = user;
+        if (section === 'exam' && activeView === 'exam') return;
+        if (section === 'ai' && !await ai.isAvailable()) section = 'training';
+        if (user !== actor) return;
+        if (exam && activeView === 'exam' && section !== 'exam') {
+            if (exam.finishing || !window.confirm('Экзамен будет сохранён. Время продолжит идти. Перейти в другой раздел?')) {
+                if (fromHistory) history.pushState({ section: 'exam' }, '', '#/exam');
+                return;
+            }
+            saveExam(); stopTimer(); exam = null;
+        }
+        showError('');
+        if (fromHistory && location.hash !== '#/' + section) history.replaceState({ section }, '', '#/' + section);
+        if (section === 'exam') {
+            if (readSavedExam()) resumeExam();
+            else await openExamSetup();
+        } else if (section === 'training') {
+            const view = lastViews.training;
+            if (view === 'categories' || !categories.length || (!fromHistory && sectionOf(activeView) === 'training')) await loadCategories();
+            else {
+                show(view);
+                if (view === 'question' && !$('result').hidden && questions[index]) {
+                    ai.offer($('ai-question'), { mode: 'training', batch_id: trainingBatchId, question_id: questions[index].id });
+                } else if (view === 'option-check' && !$('check-result').hidden && checkBatch?.cards[checkIndex]) {
+                    ai.offer($('ai-check'), { mode: 'option-check', batch_id: checkBatch.id, question_id: checkBatch.cards[checkIndex].question_id });
+                }
+            }
+        } else show(section === 'results' && !fromHistory ? 'results' : lastViews[section]);
+        if (location.hash !== '#/' + section && user && sectionOf(activeView) === section) {
+            history.replaceState({ section }, '', '#/' + section);
+        }
     }
 
     function showError(message) {
@@ -190,6 +260,11 @@
         loginRequest = '';
         $('login-code').value = '';
         $('user-bar').hidden = true;
+        $('main-nav').hidden = true;
+        $('nav-ai').hidden = true;
+        document.title = 'Тренажёр сертификации PostgreSQL 16';
+        Object.assign(lastViews, { training: 'categories', exam: 'exam-setup', ai: 'ai', results: 'results' });
+        sectionScroll.clear();
         $('login-submit').disabled = false;
         show('login');
     }
@@ -331,7 +406,8 @@
         }
     }
 
-    function startApp(me) {
+    async function startApp(me) {
+        const initialSection = location.hash.slice(2);
         user = me;
         ai.setUser(me);
         applyAccent(me.accent);
@@ -341,7 +417,19 @@
         $('user-email').textContent = me.email;
         $('user-bar').hidden = false;
         $('open-admin').hidden = me.role !== 'admin';
-        loadCategories();
+        ai.isAvailable().then((available) => {
+            if (user === me) $('nav-ai').hidden = !available;
+        });
+        await loadCategories({ route: false });
+        if (user === me && activeView !== 'categories') {
+            history.replaceState({ section: sectionOf(activeView) }, '', '#/' + sectionOf(activeView));
+            return;
+        }
+        if (user === me && Object.hasOwn(sectionNames, initialSection) && initialSection !== 'training') {
+            await navigateSection(initialSection, true);
+        } else if (user === me) {
+            history.replaceState({ section: 'training' }, '', '#/training');
+        }
     }
 
     // Ссылка из письма: токен в части после #, она не уходит на сервер при загрузке страницы.
@@ -565,16 +653,18 @@
         showQuestion();
     }
 
-    async function loadCategories() {
+    async function loadCategories({ route = true } = {}) {
         showError('');
         stopTimer();
         exam = null;
-        show('categories');
+        show('categories', { route });
+        const revision = viewRevision;
         const list = $('categories');
         list.textContent = '';
         refreshMistakes();
         try {
             categories = await api('/api/categories');
+            if (revision !== viewRevision) return;
             // Личный прогресс на карточках; если статистика недоступна, остаётся число вопросов в теме.
             const answered = new Map();
             try {
@@ -582,6 +672,7 @@
             } catch (err) {
                 // карточки покажут только число вопросов
             }
+            if (revision !== viewRevision) return;
             categories.forEach((category) => {
                 const item = document.createElement('li');
                 const button = document.createElement('button');
@@ -621,6 +712,7 @@
                 list.appendChild(item);
             });
         } catch (err) {
+            if (revision !== viewRevision) return;
             showError(err.message);
         }
         checkSavedExam();
@@ -782,9 +874,12 @@
 
     async function openExamSetup() {
         showError('');
+        const revision = viewRevision;
         try {
             categories = await api('/api/categories');
+            if (revision !== viewRevision) return;
         } catch (err) {
+            if (revision !== viewRevision) return;
             showError(err.message);
             return;
         }
@@ -1198,10 +1293,13 @@
 
     async function openHistory() {
         showError('');
+        const revision = viewRevision;
         let items;
         try {
             items = await api('/api/exam/history');
+            if (revision !== viewRevision) return;
         } catch (err) {
+            if (revision !== viewRevision) return;
             showError(err.message);
             return;
         }
@@ -1285,6 +1383,7 @@
 
     async function openDocument(url, failText) {
         showError('');
+        const revision = viewRevision;
         let text;
         try {
             const started = Date.now();
@@ -1300,9 +1399,11 @@
             if (!response || !response.ok) throw new Error(failText);
             text = body;
         } catch (err) {
+            if (revision !== viewRevision) return;
             showError(err.message);
             return;
         }
+        if (revision !== viewRevision) return;
         renderMaterial($('material-body'), text);
         show('material');
         window.scrollTo(0, 0);
@@ -1336,10 +1437,13 @@
 
     async function openStats() {
         showError('');
+        const revision = viewRevision;
         let data;
         try {
             data = await api('/api/stats');
+            if (revision !== viewRevision) return;
         } catch (err) {
+            if (revision !== viewRevision) return;
             showError(err.message);
             return;
         }
@@ -1349,14 +1453,17 @@
 
     async function openAdmin() {
         showError('');
+        const revision = viewRevision;
         let users;
         let hard;
         try {
             [users, hard] = await Promise.all([api('/api/admin/users'), api('/api/admin/hard-questions')]);
         } catch (err) {
+            if (revision !== viewRevision) return;
             showError(err.message);
             return;
         }
+        if (revision !== viewRevision) return;
         const tbody = $('admin-users');
         tbody.textContent = '';
         users.forEach((item) => {
@@ -1397,13 +1504,16 @@
 
     async function openAdminUser(id) {
         showError('');
+        const revision = viewRevision;
         let data;
         try {
             data = await api('/api/admin/users/' + encodeURIComponent(id));
         } catch (err) {
+            if (revision !== viewRevision) return;
             showError(err.message);
             return;
         }
+        if (revision !== viewRevision) return;
         $('admin-user-email').textContent = data.user.email;
         renderTopicRows($('admin-user-topics'), data.topics);
         renderExamRows($('admin-user-exams'), data.exams);
@@ -1578,14 +1688,20 @@
     $('back').addEventListener('click', loadCategories);
     $('finish-back').addEventListener('click', loadCategories);
 
-    $('open-exam').addEventListener('click', openExamSetup);
+    document.querySelectorAll('#main-nav a').forEach((link) => {
+        link.addEventListener('click', (event) => {
+            if (event.button || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            navigateSection(link.hash.slice(2));
+        });
+    });
     $('open-mistakes').addEventListener('click', startMistakes);
     $('open-history').addEventListener('click', openHistory);
     $('open-training-history').addEventListener('click', openTrainingHistory);
-    $('training-history-back').addEventListener('click', loadCategories);
+    $('training-history-back').addEventListener('click', () => show('results'));
     $('training-history-more').addEventListener('click', loadTrainingHistoryPage);
     $('training-batch-back').addEventListener('click', openTrainingHistory);
-    $('history-back').addEventListener('click', loadCategories);
+    $('history-back').addEventListener('click', () => show('results'));
     $('exam-setup-back').addEventListener('click', loadCategories);
     $('exam-start').addEventListener('click', startExam);
     $('exam-prev').addEventListener('click', () => {
@@ -1626,13 +1742,21 @@
     });
     $('material-back').addEventListener('click', loadCategories);
     $('open-stats').addEventListener('click', openStats);
-    $('stats-back').addEventListener('click', loadCategories);
+    $('stats-back').addEventListener('click', () => show('results'));
     $('open-admin').addEventListener('click', openAdmin);
     $('admin-back').addEventListener('click', loadCategories);
     $('admin-user-back').addEventListener('click', openAdmin);
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') $('user-bar').open = false;
+    });
+    document.addEventListener('click', (event) => {
+        if (!$('user-bar').contains(event.target)) $('user-bar').open = false;
+    });
 
     // Ссылку могут открыть во вкладке, где сайт уже открыт: тогда меняется только часть после #.
-    window.addEventListener('hashchange', takeLoginLink);
+    window.addEventListener('hashchange', () => {
+        if (!takeLoginLink() && location.hash.startsWith('#/')) navigateSection(location.hash.slice(2), true);
+    });
 
     init();
 })();

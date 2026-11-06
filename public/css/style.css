@@ -938,3 +938,25 @@ pre code {
     padding: .7rem; font: inherit; color: var(--fg); background: var(--surface);
     border: 1px solid var(--border); border-radius: var(--radius); resize: vertical; }
 .ai-sources a { display: block; margin: .4rem 0; overflow-wrap: anywhere; color: var(--accent); }
+
+/* Основные разделы и компактные настройки аккаунта. */
+.profile-menu { position: relative; display: block; margin: -8px 0 18px; text-align: right; }
+.profile-menu summary { display: inline-block; cursor: pointer; padding: 7px 14px; border: 1px solid var(--border); border-radius: var(--radius); color: var(--muted); }
+.profile-menu summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.profile-panel { position: absolute; z-index: 20; right: 0; top: calc(100% + 8px); display: grid; gap: 14px; width: min(330px, calc(100vw - 32px)); padding: 20px; text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 10px 32px #0003; }
+.profile-panel .accent-picker { justify-content: space-between; }
+.profile-panel .user-email { overflow-wrap: anywhere; }
+.main-nav { position: sticky; top: 12px; z-index: 15; display: flex; gap: 6px; margin: 0 0 28px; padding: 5px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.main-nav a { flex: 1; display: flex; justify-content: center; align-items: center; text-decoration: none; text-align: center; padding: 10px 6px; border-radius: 7px; color: var(--muted); font-size: .94rem; font-weight: 600; }
+.main-nav a[aria-current="page"] { background: var(--accent); color: var(--accent-fg); }
+.main-nav a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.result-links { display: grid; gap: 12px; }
+.result-links button { text-align: left; }
+#ai-view .ai-assistant { padding-top: 0; margin-top: 0; border-top: 0; }
+@media (max-width: 600px) {
+    body:has(#main-nav:not([hidden])) { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
+    .main-nav { position: fixed; z-index: 15; top: auto; bottom: 0; left: 0; right: 0; margin: 0; border-radius: 0; padding: 7px 5px calc(7px + env(safe-area-inset-bottom)); gap: 2px; box-shadow: 0 -3px 16px #0002; }
+    .main-nav a { padding: 11px 3px; font-size: .75rem; min-height: 46px; }
+}
+
+h2[tabindex="-1"]:focus { outline: none; }

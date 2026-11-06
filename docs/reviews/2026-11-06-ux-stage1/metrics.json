@@ -1,0 +1,17 @@
+{
+  "320": {
+    "categoryY": 374.671875,
+    "scrollWidth": 320,
+    "viewport": 320
+  },
+  "390": {
+    "categoryY": 349.875,
+    "scrollWidth": 390,
+    "viewport": 390
+  },
+  "1280": {
+    "categoryY": 427.84375,
+    "scrollWidth": 1280,
+    "viewport": 1280
+  }
+}
