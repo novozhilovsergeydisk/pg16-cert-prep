@@ -78,6 +78,9 @@ test('AI UI is absent when the account is not enabled', async (t) => {
     const page = await pageFor(t, (route) => reply(route, { enabled: false }));
     assert.equal(await page.locator('#panel').isVisible(), false);
     assert.equal(await page.getByRole('button', { name: 'Объяснить подробнее' }).count(), 0);
+    await page.evaluate(() => window.assistant.offer(document.querySelector('#panel'), { mode: 'general' }));
+    assert.equal(await page.locator('#panel').isVisible(), false);
+    assert.equal(await page.getByRole('heading', { name: 'Спросить ИИ' }).count(), 0);
 });
 
 test('AI UI ignores a delayed result after changing the question', async (t) => {
@@ -255,6 +258,16 @@ test('Full application offers AI only after a saved answer in both modes and sur
         });
         await page.route('**/api/ai/jobs/*', (route) => reply(route, done('Объяснение на странице')));
         await page.goto(address);
+        await page.locator('#ai-home').waitFor({ state: 'visible' });
+        assert.equal(await page.locator('#ai-home h2').textContent(), 'Спросить ИИ');
+        assert.equal(await page.locator('#ai-home input[type=radio]').count(), 0);
+        await page.locator('#ai-home textarea').fill('Почему небо голубое?');
+        await page.locator('#ai-home button[type=submit]').click();
+        await page.locator('#ai-home .ai-message').first().waitFor();
+        assert.equal(sent[0].mode, 'general');
+        assert.equal(sent[0].scope, 'general');
+        assert.equal(sent[0].batch_id, undefined);
+        sent.length = 0;
         await page.locator('#categories .card').filter({ hasText: name }).click();
         assert.equal(await page.getByRole('button', { name: 'Объяснить подробнее' }).count(), 0);
         await page.locator('#options .option:has(input[value="A"])').click();
@@ -265,6 +278,8 @@ test('Full application offers AI only after a saved answer in both modes and sur
         assert.equal(sent[0].question_id, questionId);
         assert.ok(Number.isInteger(sent[0].batch_id));
         await page.locator('#back').click();
+        await page.locator('#ai-home textarea').waitFor({ state: 'visible' });
+        assert.equal(await page.locator('#ai-home .ai-message').count(), 0);
         await page.locator('#mode-check').click();
         await page.locator('#categories .card').filter({ hasText: name }).click();
         assert.equal(await page.getByRole('button', { name: 'Объяснить подробнее' }).count(), 0);

@@ -54,6 +54,7 @@
         VIEWS.forEach((key) => {
             $(key + '-view').hidden = key !== name;
         });
+        if (name === 'categories') ai.offer($('ai-home'), { mode: 'general' });
     }
 
     function showError(message) {

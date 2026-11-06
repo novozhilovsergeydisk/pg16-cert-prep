@@ -134,6 +134,22 @@ test('General dialogue validates the first message and retains personal access',
     assert.equal(calls.length, 0);
 });
 
+test('Home dialogue needs no card and retains owner-only access and idempotency', async () => {
+    const body = { mode: 'general', scope: 'general', message: 'Почему небо голубое?', request_id: crypto.randomUUID() };
+    assert.equal((await request('/api/ai/conversations', body, other)).status, 404);
+    assert.equal((await request('/api/ai/conversations', body, null)).status, 401);
+    assert.equal((await request('/api/ai/conversations', { ...body, scope: 'question' })).status, 400);
+    assert.equal((await request('/api/ai/conversations', { ...body, message: '' })).status, 400);
+    const first = await request('/api/ai/conversations', body);
+    assert.equal(first.status, 202);
+    assert.deepEqual((await result(first.body.job_id)).body.sources, []);
+    assert.deepEqual(calls[0], { context: { scope: 'general' }, messages: [{ role: 'user', content: body.message }] });
+    assert.equal((await request('/api/ai/conversations', body)).body.job_id, first.body.job_id);
+    const follow = await request('/api/ai/conversations/' + first.body.conversation_id + '/messages',
+        { message: 'А на закате?', request_id: crypto.randomUUID() });
+    assert.equal((await result(follow.body.job_id)).body.turns, 2);
+});
+
 test('AI uses the immutable snapshot and the displayed option letters, ignoring browser context', async () => {
     const response = await request('/api/ai/conversations', startBody({ context: { question: 'Подмена' } }));
     assert.equal(response.status, 202);

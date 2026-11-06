@@ -50,13 +50,14 @@
         }
 
         async function offer(container, context) {
+            const standalone = context.mode === 'general';
             const version = revision;
             containers.add(container);
             container.hidden = true;
             container.textContent = '';
-            if (!context.batch_id || !await availability || version !== revision) return;
+            if ((!standalone && !context.batch_id) || !await availability || version !== revision) return;
             container.className = 'ai-assistant';
-            let scope = 'question';
+            let scope = standalone ? 'general' : 'question';
             let dialogRevision = 0;
             const modes = element('fieldset', 'ai-modes');
             modes.appendChild(element('legend', '', 'Тема диалога'));
@@ -95,6 +96,10 @@
             form.append(label, send);
             form.hidden = true;
             container.append(modes, start, status, history, sources, form);
+            if (standalone) {
+                modes.remove();
+                container.prepend(element('h2', '', 'Спросить ИИ'));
+            }
             container.hidden = false;
             let conversation = null;
             let pending = null;
@@ -198,6 +203,7 @@
             form.addEventListener('submit', (event) => {
                 event.preventDefault(); submit(scope === 'general' && !conversation);
             });
+            if (standalone) newDialogue();
         }
         return { reset, setUser, offer };
     };

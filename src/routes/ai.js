@@ -122,9 +122,11 @@ function createAiRouter({ pool = require('../config/db'), requireAuth = authenti
     router.post('/ai/conversations', async (req, res) => {
         const body = req.body || {};
         const scope = body.scope === undefined ? 'question' : body.scope;
+        const standalone = body.mode === 'general' && scope === 'general';
         const batchId = id(body.batch_id), questionId = id(body.question_id);
-        if (typeof body.request_id !== 'string' || !UUID.test(body.request_id) || !batchId || !questionId
-            || !['training', 'option-check'].includes(body.mode) || !['question', 'general'].includes(scope)) {
+        if (typeof body.request_id !== 'string' || !UUID.test(body.request_id)
+            || (!standalone && (!batchId || !questionId || !['training', 'option-check'].includes(body.mode)))
+            || !['question', 'general'].includes(scope)) {
             return res.status(400).json({ error: 'Некорректные параметры вопроса' });
         }
         if (scope === 'general' && (typeof body.message !== 'string' || !body.message.trim() || body.message.length > 1000)) {
@@ -134,7 +136,8 @@ function createAiRouter({ pool = require('../config/db'), requireAuth = authenti
         const fingerprint = createHash('sha256').update(JSON.stringify([scope, body.mode, batchId, questionId, message])).digest('hex');
         if (repeated(req, res, fingerprint) || !reserve(req, res)) return;
         try {
-            const context = await loadContext(pool, req.user.id, { mode: body.mode, batch_id: batchId, question_id: questionId });
+            const context = standalone ? { scope: 'general' }
+                : await loadContext(pool, req.user.id, { mode: body.mode, batch_id: batchId, question_id: questionId });
             if (!context) {
                 active.delete(req.user.id);
                 return res.status(404).json({ error: 'Сначала ответьте на вопрос в этой порции' });
