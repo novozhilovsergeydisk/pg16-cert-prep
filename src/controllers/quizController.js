@@ -49,19 +49,6 @@ async function logAnswers(userId, entries) {
     }
 }
 
-// История экзаменов вторична: сбой записи не должен ломать выдачу результата.
-async function saveExam(userId, { total, correct, percent, passed, durationSeconds }) {
-    try {
-        await pool.query(
-            'INSERT INTO exam_history (user_id, total, correct, percent, passed, duration_seconds) VALUES ($1, $2, $3, $4, $5, $6)',
-            [userId, total, correct, percent, passed, durationSeconds]
-        );
-    } catch (err) {
-        // результат всё равно отдаётся пользователю
-        logError('exam_history', err);
-    }
-}
-
 async function getCategories(req, res) {
     try {
         const result = await pool.query(
@@ -209,49 +196,90 @@ async function postExamCheck(req, res) {
         seen.add(questionId);
         submitted.push({ questionId, answer });
     }
+    const submissionId = body.submission_id ?? null;
+    if (submissionId !== null && (typeof submissionId !== 'string'
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(submissionId))) {
+        return res.status(400).json({ error: 'Некорректный идентификатор экзамена' });
+    }
+    const replay = (row) => {
+        const snapshot = row.snapshot;
+        const same = snapshot.results.length === submitted.length && submitted.every((s, i) =>
+            snapshot.results[i].question_id === s.questionId && snapshot.results[i].answer === s.answer
+            && (items[i].order === undefined || JSON.stringify(items[i].order) === JSON.stringify(snapshot.questions[i].order)));
+        if (!same) return res.status(409).json({ error: 'Этот экзамен уже завершён с другими ответами' });
+        return res.json({ ...snapshot, history_id: row.id });
+    };
+    let client;
+    let broken = false;
     try {
-        const result = await pool.query(
-            'SELECT id, category_id, correct_answer, explanation, option_notes FROM questions WHERE id = ANY($1::int[])',
-            [submitted.map((s) => s.questionId)]
+        client = await pool.connect();
+        await client.query('BEGIN');
+        if (submissionId) {
+            const saved = await client.query('SELECT id, snapshot FROM exam_history WHERE user_id=$1 AND submission_id=$2', [req.user.id, submissionId]);
+            if (saved.rowCount) {
+                await client.query('COMMIT');
+                return replay(saved.rows[0]);
+            }
+        }
+        const found = await client.query(
+            `SELECT q.id, q.category_id, c.name AS category_name, q.question_text, q.options,
+                    q.correct_answer, q.explanation, q.option_notes
+             FROM questions q JOIN categories c ON c.id=q.category_id WHERE q.id=ANY($1::int[])`,
+            [submitted.map(s => s.questionId)]
         );
-        if (result.rowCount !== submitted.length) {
+        if (found.rowCount !== submitted.length) {
+            await client.query('ROLLBACK');
             return res.status(404).json({ error: 'Вопрос не найден' });
         }
-        const byId = new Map(result.rows.map((row) => [row.id, row]));
-        const results = submitted.map(({ questionId, answer }) => {
-            const row = byId.get(questionId);
-            const correctAnswer = row.correct_answer;
-            return {
-                question_id: questionId,
-                category_id: row.category_id,
-                answer,
-                correct_answer: correctAnswer,
-                correct: answer === correctAnswer,
-                explanation: row.explanation,
-                option_notes: row.option_notes,
-            };
-        });
-        await logAnswers(req.user.id, results.filter((r) => r.answer !== null).map((r) => ({ questionId: r.question_id, correct: r.correct })));
-        const correct = results.filter((r) => r.correct).length;
-        const percent = Math.round((correct * 100) / results.length);
-        await saveExam(req.user.id, {
-            total: results.length,
-            correct,
-            percent,
-            passed: percent >= EXAM_PASS_PERCENT,
-            durationSeconds,
-        });
-        res.json({
-            total: results.length,
-            correct,
-            percent,
-            pass_percent: EXAM_PASS_PERCENT,
-            passed: percent >= EXAM_PASS_PERCENT,
-            results,
-        });
+        const byId = new Map(found.rows.map(row => [row.id, row]));
+        const questions = [];
+        const results = [];
+        for (const [i, { questionId, answer }] of submitted.entries()) {
+            const q = byId.get(questionId);
+            const keys = Object.keys(q.options);
+            const order = items[i].order === undefined ? keys : items[i].order;
+            if (!Array.isArray(order) || order.length !== keys.length || new Set(order).size !== keys.length
+                || order.some(k => !keys.includes(k))) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ error: 'Некорректный порядок вариантов' });
+            }
+            questions.push({ id: q.id, category_id: q.category_id, category_name: q.category_name,
+                question_text: q.question_text, options: q.options, order, correct_count: q.correct_answer.length });
+            results.push({ question_id: q.id, category_id: q.category_id, answer,
+                correct_answer: q.correct_answer, correct: answer === q.correct_answer,
+                explanation: q.explanation, option_notes: q.option_notes });
+        }
+        const correct = results.filter(r => r.correct).length;
+        const percent = Math.round(correct * 100 / results.length);
+        const snapshot = { total: results.length, correct, percent, pass_percent: EXAM_PASS_PERCENT,
+            passed: percent >= EXAM_PASS_PERCENT, duration_seconds: durationSeconds, questions, results };
+        const inserted = await client.query(
+            `INSERT INTO exam_history (user_id,total,correct,percent,passed,duration_seconds,snapshot,submission_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8)
+             ON CONFLICT (user_id,submission_id) DO NOTHING RETURNING id`,
+            [req.user.id,snapshot.total,correct,percent,snapshot.passed,durationSeconds,JSON.stringify(snapshot),submissionId]
+        );
+        if (!inserted.rowCount) {
+            const saved = await client.query('SELECT id,snapshot FROM exam_history WHERE user_id=$1 AND submission_id=$2', [req.user.id,submissionId]);
+            await client.query('COMMIT');
+            return replay(saved.rows[0]);
+        }
+        const answered = results.filter(r => r.answer !== null);
+        if (answered.length) await client.query(
+            'INSERT INTO answer_log (user_id,question_id,correct) SELECT $1::int,* FROM unnest($2::int[],$3::boolean[])',
+            [req.user.id,answered.map(r => r.question_id),answered.map(r => r.correct)]
+        );
+        await client.query('COMMIT');
+        res.json({ ...snapshot, history_id: inserted.rows[0].id });
     } catch (err) {
+        if (client) {
+            try { await client.query('ROLLBACK'); }
+            catch (rollbackError) { broken = true; logError('exam_rollback', rollbackError); }
+        }
         noteError(res, err);
-        res.status(500).json({ error: 'Ошибка запроса к БД' });
+        res.status(500).json({ error: 'Не удалось подтвердить сохранение экзамена. Повторите отправку — результат не продублируется.' });
+    } finally {
+        if (client) client.release(broken);
     }
 }
 
@@ -288,4 +316,21 @@ async function getExamHistory(req, res) {
     }
 }
 
-module.exports = { getCategories, getQuestions, postAnswer, getExam, postExamCheck, getMistakes, getExamHistory };
+// Снимок доступен только владельцу; отсутствие записи и чужой результат неразличимы.
+async function getExamReview(req, res) {
+    const id = req.params.id;
+    if (!/^[1-9]\d{0,18}$/.test(id) || BigInt(id) > 9223372036854775807n) {
+        return res.status(404).json({ error: 'Разбор экзамена недоступен' });
+    }
+    try {
+        const result = await pool.query(
+            'SELECT id,snapshot FROM exam_history WHERE id=$1 AND user_id=$2 AND snapshot IS NOT NULL', [id,req.user.id]);
+        if (!result.rowCount) return res.status(404).json({ error: 'Разбор экзамена недоступен' });
+        res.json({ ...result.rows[0].snapshot, history_id: result.rows[0].id });
+    } catch (err) {
+        noteError(res, err);
+        res.status(500).json({ error: 'Не удалось загрузить разбор экзамена. Попробуйте ещё раз.' });
+    }
+}
+
+module.exports = { getCategories, getQuestions, postAnswer, getExam, postExamCheck, getMistakes, getExamHistory, getExamReview };

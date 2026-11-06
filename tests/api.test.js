@@ -529,7 +529,7 @@ test('GET /api/exam/history отдаёт экзамены, новые сверх
     const { status, body } = await get('/api/exam/history');
     assert.equal(status, 200);
     assert.ok(Array.isArray(body) && body.length >= 2 && body.length <= 50);
-    assert.deepEqual(Object.keys(body[0]).sort(), ['correct', 'duration_seconds', 'finished_at', 'id', 'passed', 'percent', 'total']);
+    assert.deepEqual(Object.keys(body[0]).sort(), ['correct', 'duration_seconds', 'finished_at', 'has_review', 'id', 'passed', 'percent', 'total']);
     assert.equal(body[0].duration_seconds, 2);
     assert.equal(body[0].passed, false);
     const times = body.map((e) => new Date(e.finished_at).getTime());

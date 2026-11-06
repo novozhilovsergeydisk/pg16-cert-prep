@@ -34,7 +34,7 @@ async function topicStats(userId) {
 
 async function examHistory(userId) {
     const result = await pool.query(
-        `SELECT id, finished_at, total, correct, percent, passed, duration_seconds
+        `SELECT id, finished_at, total, correct, percent, passed, duration_seconds, snapshot IS NOT NULL AS has_review
          FROM exam_history
          WHERE user_id = $1
          ORDER BY finished_at DESC, id DESC
@@ -44,12 +44,38 @@ async function examHistory(userId) {
     return result.rows;
 }
 
+// Оценки отдельных вариантов: охват — по вопросам, последние ошибки — по парам вопрос/вариант.
+async function optionTopicStats(userId) {
+    const result = await pool.query(
+        `WITH answers AS (
+             SELECT question_id, option_key, is_right, answered_at, id
+             FROM option_check_answers WHERE user_id=$1
+         ), totals AS (
+             SELECT question_id, count(*) AS total, count(*) FILTER (WHERE is_right) AS correct
+             FROM answers GROUP BY question_id
+         ), latest AS (
+             SELECT DISTINCT ON (question_id,option_key) question_id, option_key, is_right
+             FROM answers ORDER BY question_id,option_key,answered_at DESC,id DESC
+         ), errors AS (
+             SELECT question_id, count(*) FILTER (WHERE NOT is_right) AS mistakes
+             FROM latest GROUP BY question_id
+         )
+         SELECT c.id,c.name,count(q.id)::int AS question_count,count(t.question_id)::int AS answered,
+                CASE WHEN sum(t.total)>0 THEN round(100.0*sum(t.correct)/sum(t.total))::int END AS correct_percent,
+                coalesce(sum(e.mistakes),0)::int AS mistakes
+         FROM categories c LEFT JOIN questions q ON q.category_id=c.id
+         LEFT JOIN totals t ON t.question_id=q.id LEFT JOIN errors e ON e.question_id=q.id
+         GROUP BY c.id ORDER BY c.name`, [userId]);
+    return result.rows;
+}
+
 async function getMyStats(req, res) {
     try {
-        res.json({ topics: await topicStats(req.user.id) });
+        const [topics, option_topics] = await Promise.all([topicStats(req.user.id), optionTopicStats(req.user.id)]);
+        res.json({ topics, option_topics });
     } catch (err) {
         noteError(res, err);
-        res.status(500).json({ error: 'Ошибка запроса к БД' });
+        res.status(500).json({ error: 'Не удалось загрузить статистику. Попробуйте ещё раз.' });
     }
 }
 

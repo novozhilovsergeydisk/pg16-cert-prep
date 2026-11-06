@@ -7,6 +7,7 @@ const {
     postExamCheck,
     getMistakes,
     getExamHistory,
+    getExamReview,
 } = require('../controllers/quizController');
 const { requireAuth } = require('../middleware/auth');
 const { answerLimit, examCheckLimit } = require('../middleware/rateLimit');
@@ -31,5 +32,6 @@ router.get('/exam', getExam);
 router.post('/exam/check', examCheckLimit, postExamCheck);
 router.get('/mistakes', getMistakes);
 router.get('/exam/history', getExamHistory);
+router.get('/exam/history/:id', getExamReview);
 
 module.exports = router;

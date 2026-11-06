@@ -25,6 +25,9 @@
     const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
     let categories = [];
+    let statsData = null;
+    let statsMode = 'training';
+    let categoryProgress = { training: new Map(), checks: new Map() };
     // В работе над ошибками вопросы из разных разделов: над вопросом показывается название раздела.
     let showSection = false;
     let questions = [];
@@ -41,6 +44,7 @@
     let trainingHistoryBefore = null;
     let index = 0;
     let exam = null;
+    let resultBackToHistory = false;
     let user = null;
     let loginToken = null;
     let loginEmail = '';
@@ -121,7 +125,9 @@
             else if (view === 'question') showQuestion();
             else if (view === 'option-check') showCheckCard();
             else show(view);
-        } else show(section === 'results' && !fromHistory ? 'results' : lastViews[section]);
+        } else if (section === 'results' && fromHistory && lastViews.results === 'history') await openHistory();
+        else if (section === 'results' && fromHistory && lastViews.results === 'stats') await openStats();
+        else show(section === 'results' && !fromHistory ? 'results' : lastViews[section]);
         if (location.hash !== '#/' + section && user && sectionOf(activeView) === section) {
             history.replaceState({ section }, '', '#/' + section);
         }
@@ -257,6 +263,9 @@
         unconfirmedAnswers.clear(); unconfirmedChecks.clear();
         stopTimer();
         exam = null;
+        statsData = null;
+        statsMode = 'training';
+        categoryProgress = { training: new Map(), checks: new Map() };
         // Данные незавершённого входа не должны пережить выход или истечение сеанса.
         loginToken = null;
         loginEmail = '';
@@ -769,13 +778,16 @@
             categories = await api('/api/categories');
             if (revision !== viewRevision) return;
             // Личный прогресс на карточках; если статистика недоступна, остаётся число вопросов в теме.
-            const answered = new Map();
+            const nextProgress = { training: new Map(), checks: new Map() };
             try {
-                (await api('/api/stats')).topics.forEach((topic) => answered.set(topic.id, topic.answered));
+                const data = await api('/api/stats');
+                data.topics.forEach(t => nextProgress.training.set(t.id, t.answered));
+                (data.option_topics || []).forEach(t => nextProgress.checks.set(t.id, t.answered));
             } catch (err) {
                 // карточки покажут только число вопросов
             }
             if (revision !== viewRevision) return;
+            categoryProgress = nextProgress;
             categories.forEach((category) => {
                 const item = document.createElement('li');
                 const button = document.createElement('button');
@@ -786,9 +798,9 @@
                 name.textContent = category.name;
                 const count = document.createElement('span');
                 count.className = 'card-count';
-                count.textContent = answered.has(category.id)
-                    ? 'решено ' + answered.get(category.id) + ' из ' + category.question_count
-                    : questionsLabel(category.question_count);
+                count.dataset.categoryId = category.id;
+                count.dataset.questionCount = category.question_count;
+                count.textContent = categoryProgressText(category.id, category.question_count);
                 button.appendChild(name);
                 button.appendChild(count);
                 button.addEventListener('click', () => (checkMode ? startOptionCheck(category) : startCategory(category)));
@@ -1077,6 +1089,7 @@
                 startedAt: exam.startedAt,
                 deadline: exam.deadline,
                 visited: exam.visited,
+                submissionId: exam.submissionId,
             }));
         } catch (err) {
             // хранилище недоступно или переполнено — экзамен просто не переживёт закрытие вкладки
@@ -1111,6 +1124,7 @@
 
     function restoreExam(data) {
         exam = {
+            submissionId: data.submissionId || crypto.randomUUID(),
             questions: data.questions,
             answers: data.answers,
             index: data.index,
@@ -1121,6 +1135,7 @@
             visited: Array.isArray(data.visited) && data.visited.length === data.questions.length && data.visited.every(v => typeof v === 'boolean')
                 ? data.visited : data.questions.map((_, i) => i <= data.index || Boolean(data.answers[i])),
         };
+        saveExam();
     }
 
     // На экране категорий: плашка о незавершённом экзамене; если время вышло — экзамен завершается сам.
@@ -1235,6 +1250,7 @@
             return;
         }
         exam = {
+            submissionId: crypto.randomUUID(),
             questions: prepareQuestions(loaded),
             answers: loaded.map(() => null),
             index: 0,
@@ -1357,7 +1373,8 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    answers: exam.questions.map((q, i) => ({ question_id: q.id, answer: exam.answers[i] })),
+                    submission_id: exam.submissionId,
+                    answers: exam.questions.map((q, i) => ({ question_id: q.id, answer: exam.answers[i], order: q.order })),
                     duration_seconds: Math.max(0, Math.min(86400, Math.round((Math.min(Date.now(), exam.deadline) - exam.startedAt) / 1000))),
                 }),
             });
@@ -1470,7 +1487,7 @@
 
     // История экзаменов
 
-    function renderExamRows(list, items) {
+    function renderExamRows(list, items, ownHistory = false) {
         list.textContent = '';
         items.forEach((item) => {
             const row = document.createElement('li');
@@ -1491,12 +1508,43 @@
             row.appendChild(score);
             row.appendChild(status);
             row.appendChild(time);
+            if (ownHistory) {
+                const action = document.createElement(item.has_review ? 'button' : 'span');
+                action.className = item.has_review ? 'btn-secondary history-review' : 'progress history-review';
+                action.textContent = item.has_review ? 'Открыть разбор' : 'Сохранена только сводка';
+                if (item.has_review) {
+                    action.type = 'button';
+                    action.addEventListener('click', () => openExamReview(item.id, action));
+                }
+                row.appendChild(action);
+            }
             list.appendChild(row);
         });
     }
 
+    async function openExamReview(id, button) {
+        showError('');
+        const revision = viewRevision;
+        button.disabled = true;
+        button.textContent = 'Загрузка разбора…';
+        try {
+            const result = await api('/api/exam/history/' + id);
+            if (revision !== viewRevision) return;
+            renderResult(result, true);
+        } catch (err) {
+            if (revision === viewRevision) showError(err.message);
+        } finally {
+            button.disabled = false;
+            button.textContent = 'Открыть разбор';
+        }
+    }
+
     async function openHistory() {
         showError('');
+        show('history');
+        $('history-list').textContent = '';
+        $('history-empty').hidden = true;
+        $('history-loading').textContent = 'Загрузка истории…';
         const revision = viewRevision;
         let items;
         try {
@@ -1504,12 +1552,13 @@
             if (revision !== viewRevision) return;
         } catch (err) {
             if (revision !== viewRevision) return;
+            $('history-loading').textContent = '';
             showError(err.message);
             return;
         }
-        renderExamRows($('history-list'), items);
+        renderExamRows($('history-list'), items, true);
         $('history-empty').hidden = items.length > 0;
-        show('history');
+        $('history-loading').textContent = '';
     }
 
     // Материал для изучения: Markdown с заголовками, абзацами, списками и блоками кода. Без innerHTML.
@@ -1627,32 +1676,88 @@
         return value === null || value === undefined ? '—' : value + '%';
     }
 
-    function renderTopicRows(tbody, topics) {
+    function renderTopicRows(tbody, topics, personal = false) {
         tbody.textContent = '';
         topics.forEach((topic) => {
             const row = document.createElement('tr');
+            if (personal) row.setAttribute('role', 'row');
             cell(row, topic.name);
-            cell(row, topic.answered + ' из ' + topic.question_count, true);
+            const coverage = cell(row, topic.answered + ' из ' + topic.question_count, true);
             cell(row, percentText(topic.correct_percent), true);
             cell(row, String(topic.mistakes), true);
+            if (personal) {
+                const meter = document.createElement('progress');
+                meter.max = topic.question_count || 1;
+                meter.value = topic.answered;
+                meter.setAttribute('aria-label', 'Охват вопросов: ' + topic.answered + ' из ' + topic.question_count);
+                coverage.appendChild(meter);
+                const labels = ['Тема', 'Охват вопросов', statsMode === 'checks' ? 'Верных оценок' : 'Верных ответов',
+                    statsMode === 'checks' ? 'Вариантов с ошибкой' : 'Вопросов с ошибкой'];
+                Array.from(row.cells).forEach((td, i) => { td.dataset.label = labels[i]; td.setAttribute('role', 'cell'); });
+            }
             tbody.appendChild(row);
         });
     }
 
+    function renderStats() {
+        if (!statsData) return;
+        const checks = statsMode === 'checks';
+        const topics = checks ? statsData.option_topics || [] : statsData.topics;
+        for (const [id, active] of [['stats-training', !checks], ['stats-checks', checks]]) {
+            $(id).classList.toggle('active', active);
+            $(id).setAttribute('aria-pressed', String(active));
+        }
+        $('stats-correct-heading').textContent = checks ? 'Верных оценок' : 'Верных ответов';
+        $('stats-errors-heading').textContent = checks ? 'Вариантов с ошибкой' : 'Вопросов с ошибкой';
+        $('stats-note').textContent = checks
+            ? 'Охват — вопросы, в которых вы оценили хотя бы один вариант. Это не проверка всех вариантов вопроса. Доля верных оценок учитывает все попытки; ошибки — последнюю оценку каждого варианта.'
+            : 'Охват — вопросы, на которые вы ответили хотя бы раз. Доля верных ответов учитывает все попытки, включая экзамены; ошибки — последний ответ на каждый вопрос.';
+        const total = topics.reduce((n, t) => n + t.question_count, 0);
+        const answered = topics.reduce((n, t) => n + t.answered, 0);
+        const mistakes = topics.reduce((n, t) => n + t.mistakes, 0);
+        const coverage = !total ? '—' : answered > 0 && answered * 100 < total ? '<1%' : Math.round(answered * 100 / total) + '%';
+        $('stats-summary').textContent = '';
+        for (const [label, value, detail] of [
+            ['Охват вопросов', coverage, answered + ' из ' + total],
+            ['Тем с ответами', topics.filter(t => t.answered > 0).length, 'из ' + topics.length],
+            [checks ? 'Вариантов с ошибкой' : 'Вопросов с ошибкой', mistakes, 'по последним ответам'],
+        ]) {
+            const card = document.createElement('div'); card.className = 'metric-card';
+            const title = document.createElement('span'); title.className = 'metric-label'; title.textContent = label;
+            const number = document.createElement('strong'); number.className = 'metric-value'; number.textContent = value;
+            const note = document.createElement('span'); note.className = 'metric-detail'; note.textContent = detail;
+            card.append(title, number, note); $('stats-summary').appendChild(card);
+        }
+        renderTopicRows($('stats-topics'), topics, true);
+        $('stats-empty').hidden = answered > 0;
+        $('stats-empty').textContent = checks ? 'Вы ещё не оценивали варианты в этом режиме.' : 'Пока нет ответов в тренировках и экзаменах.';
+        $('stats-content').hidden = false;
+    }
+
     async function openStats() {
         showError('');
+        show('stats');
         const revision = viewRevision;
-        let data;
+        statsData = null;
+        $('stats-content').hidden = true;
+        $('stats-loading').hidden = false;
+        $('stats-retry').hidden = true;
+        $('stats-training').disabled = $('stats-checks').disabled = true;
         try {
-            data = await api('/api/stats');
+            const data = await api('/api/stats');
             if (revision !== viewRevision) return;
+            statsData = data;
+            renderStats();
         } catch (err) {
             if (revision !== viewRevision) return;
+            $('stats-retry').hidden = false;
             showError(err.message);
-            return;
+        } finally {
+            if (revision === viewRevision) {
+                $('stats-loading').hidden = true;
+                $('stats-training').disabled = $('stats-checks').disabled = false;
+            }
         }
-        renderTopicRows($('stats-topics'), data.topics);
-        show('stats');
     }
 
     async function openAdmin() {
@@ -1725,7 +1830,10 @@
         show('admin-user');
     }
 
-    function renderResult(result) {
+    function renderResult(result, fromHistory = false) {
+        resultBackToHistory = fromHistory;
+        $('result-back').textContent = fromHistory ? 'К истории экзаменов' : 'К списку категорий';
+        const resultQuestions = result.questions || exam.questions;
         showError('');
         $('score-percent').textContent = result.percent + '%';
         const status = $('score-status');
@@ -1735,6 +1843,7 @@
             + '. Порог сдачи: ' + result.pass_percent + '%.';
 
         const names = new Map(categories.map((c) => [c.id, c.name]));
+        resultQuestions.forEach(q => { if (q.category_name) names.set(q.category_id, q.category_name); });
         const stats = new Map();
         result.results.forEach((r) => {
             const stat = stats.get(r.category_id) || { total: 0, correct: 0 };
@@ -1755,7 +1864,7 @@
         const errorsBox = $('score-errors');
         errorsBox.textContent = '';
         const wrong = result.results
-            .map((r, i) => ({ r, question: exam.questions[i] }))
+            .map((r, i) => ({ r, question: resultQuestions[i] }))
             .filter(({ r }) => !r.correct);
         $('errors-title').hidden = wrong.length === 0;
         wrong.forEach(({ r, question }) => {
@@ -1788,11 +1897,23 @@
             errorsBox.appendChild(card);
         });
         show('exam-result');
+        const heading = $('exam-result-view').querySelector('h2');
+        heading.tabIndex = -1;
+        heading.focus();
     }
 
     // ── Режим «Подходит или нет» ───────────────────────────────────────────
+    function categoryProgressText(id, count) {
+        const progress = checkMode ? categoryProgress.checks : categoryProgress.training;
+        return progress.has(id) ? (checkMode ? 'Вопросов с оценкой: ' : 'Вопросов с ответом: ')
+            + progress.get(id) + ' из ' + count : questionsLabel(count);
+    }
+
     function setMode(check) {
         checkMode = check;
+        document.querySelectorAll('.card-count[data-category-id]').forEach(node => {
+            node.textContent = categoryProgressText(Number(node.dataset.categoryId), Number(node.dataset.questionCount));
+        });
         $('mode-train').classList.toggle('active', !check);
         $('mode-check').classList.toggle('active', check);
         $('mode-train').setAttribute('aria-pressed', String(!check));
@@ -1948,7 +2069,7 @@
     $('exam-resume-continue').addEventListener('click', resumeExam);
     $('exam-resume-finish').addEventListener('click', finishSavedExam);
     $('result-new').addEventListener('click', openExamSetup);
-    $('result-back').addEventListener('click', loadCategories);
+    $('result-back').addEventListener('click', () => resultBackToHistory ? openHistory() : loadCategories());
 
     $('login-form').addEventListener('submit', requestLink);
     $('login-again').addEventListener('click', () => {
@@ -1968,6 +2089,9 @@
     });
     $('material-back').addEventListener('click', loadCategories);
     $('open-stats').addEventListener('click', openStats);
+    $('stats-retry').addEventListener('click', openStats);
+    $('stats-training').addEventListener('click', () => { statsMode = 'training'; renderStats(); });
+    $('stats-checks').addEventListener('click', () => { statsMode = 'checks'; renderStats(); });
     $('stats-back').addEventListener('click', () => show('results'));
     $('open-admin').addEventListener('click', openAdmin);
     $('admin-back').addEventListener('click', loadCategories);

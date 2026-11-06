@@ -10,9 +10,16 @@
 </head>
 <body>
     <main>
-        <h1>Тренажёр сертификации PostgreSQL 16</h1>
+        <header class="app-header">
+        <div class="brand">
+            <img src="favicon.svg" alt="" width="38" height="38">
+            <div><h1>PostgreSQL <span class="version-badge">16</span></h1><p>Подготовка к сертификации</p></div>
+        </div>
         <details id="user-bar" class="user-bar profile-menu" hidden>
-            <summary>Профиль</summary>
+            <summary aria-label="Профиль">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="8" r="3.25"/><path d="M5.5 20v-2a6.5 6.5 0 0 1 13 0v2"/></svg>
+                <span class="profile-label">Профиль</span>
+            </summary>
             <div class="profile-panel">
             <label class="accent-picker">Тема
                 <select id="theme-select">
@@ -35,11 +42,12 @@
             </div>
         </details>
         <nav id="main-nav" class="main-nav" aria-label="Основные разделы" hidden>
-            <a id="nav-training" href="#/training">Тренировка</a>
-            <a id="open-exam" href="#/exam">Экзамен</a>
-            <a id="nav-ai" href="#/ai" hidden>ИИ-помощник</a>
-            <a id="nav-results" href="#/results">Результаты</a>
+            <a id="nav-training" href="#/training"><svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v15M3 4.5c3-1 6-.5 9 1.5 3-2 6-2.5 9-1.5v14c-3-1-6-.5-9 1.5-3-2-6-2.5-9-1.5z"/></svg>Тренировка</a>
+            <a id="open-exam" href="#/exam"><svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3h6v3H9zM9 13l2 2 4-4"/></svg>Экзамен</a>
+            <a id="nav-ai" href="#/ai" aria-label="ИИ-помощник" hidden><svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 2.3 6.7L21 12l-6.7 2.3L12 21l-2.3-6.7L3 12l6.7-2.3z"/></svg><span class="nav-label-full">ИИ-помощник</span><span class="nav-label-short" aria-hidden="true">ИИ</span></a>
+            <a id="nav-results" href="#/results"><svg class="nav-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16M6 16V9m6 7V4m6 12v-5"/></svg>Результаты</a>
         </nav>
+        </header>
         <div id="error" role="alert" hidden></div>
 
         <section id="login-view" hidden>
@@ -77,6 +85,7 @@
         </section>
 
         <section id="categories-view">
+            <div class="section-heading"><div><p class="eyebrow">Практика по темам</p><h2>Ваша подготовка</h2></div></div>
             <div id="practice-resume" class="result resume" hidden>
                 <p id="practice-resume-text"></p>
                 <button id="practice-resume-button" class="btn" type="button">Продолжить тренировку</button>
@@ -89,14 +98,13 @@
                     <button id="exam-resume-finish" class="btn-secondary" type="button">Завершить экзамен</button>
                 </div>
             </div>
-            <div class="actions top-actions">
-                <button id="open-mistakes" class="btn-secondary" type="button">Работа над ошибками</button>
+            <div class="practice-toolbar">
+                <div class="mode-switch" role="group" aria-label="Режим">
+                    <button id="mode-train" class="mode-btn active" type="button" aria-pressed="true">Тренировка</button>
+                    <button id="mode-check" class="mode-btn" type="button" aria-pressed="false">Подходит или нет</button>
+                </div>
+                <div class="actions top-actions"><button id="open-mistakes" class="btn-secondary" type="button">Работа над ошибками</button></div>
             </div>
-            <div class="mode-switch" role="group" aria-label="Режим">
-                <button id="mode-train" class="mode-btn active" type="button" aria-pressed="true">Тренировка</button>
-                <button id="mode-check" class="mode-btn" type="button" aria-pressed="false">Подходит или нет</button>
-            </div>
-            <h2>Категории</h2>
             <p id="categories-loading" class="progress" role="status" hidden>Загружаю темы…</p>
             <ul id="categories" class="cards"></ul>
         </section>
@@ -209,17 +217,29 @@
             <button id="history-back" class="btn-secondary" type="button">К результатам</button>
             <h2>История экзаменов</h2>
             <p id="history-empty" class="progress" hidden>Пока нет пройденных экзаменов.</p>
+            <p id="history-loading" class="progress" role="status"></p>
             <ul id="history-list" class="plain"></ul>
         </section>
 
         <section id="stats-view" hidden>
             <button id="stats-back" class="btn-secondary back" type="button">К результатам</button>
-            <h2>Моя статистика: практика по темам</h2>
-            <div class="table-wrap">
-                <table class="stats-table">
-                    <thead><tr><th>Тема</th><th class="num">Решено</th><th class="num">Верных</th><th class="num">В ошибках</th></tr></thead>
-                    <tbody id="stats-topics"></tbody>
-                </table>
+            <div class="section-heading"><div><p class="eyebrow">Ваш прогресс</p><h2>Статистика</h2></div></div>
+            <div class="mode-switch stats-switch" role="group" aria-label="Режим статистики">
+                <button id="stats-training" class="mode-btn active" type="button" aria-pressed="true">Тренировка и экзамены</button>
+                <button id="stats-checks" class="mode-btn" type="button" aria-pressed="false">Подходит или нет</button>
+            </div>
+            <p id="stats-loading" class="progress" role="status" hidden>Загружаю статистику…</p>
+            <button id="stats-retry" class="btn-secondary" type="button" hidden>Повторить загрузку</button>
+            <div id="stats-content" hidden>
+                <div id="stats-summary" class="stats-summary"></div>
+                <p id="stats-note" class="stats-note"></p>
+                <p id="stats-empty" class="progress" role="status" hidden></p>
+                <div class="table-wrap personal-stats">
+                    <table class="stats-table personal-stats-table" role="table">
+                        <thead role="rowgroup"><tr role="row"><th scope="col">Тема</th><th scope="col" class="num">Охват вопросов</th><th id="stats-correct-heading" scope="col" class="num">Верных ответов</th><th id="stats-errors-heading" scope="col" class="num">Вопросов с ошибкой</th></tr></thead>
+                        <tbody id="stats-topics" role="rowgroup"></tbody>
+                    </table>
+                </div>
             </div>
         </section>
 
