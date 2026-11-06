@@ -6,6 +6,8 @@
         'option-check', 'ai', 'results'];
     const EXAM_COUNTS = [20, 30, 50];
     const EXAM_DEFAULT_COUNT = 30;
+    let examStarting = false;
+    let overviewQuestions = null;
     const SECONDS_PER_QUESTION = 90;
     const PORTION_SIZE = 16;
     const FINISH_PORTION = 'Порция пройдена';
@@ -995,8 +997,13 @@
 
     function updateTimeNote() {
         const count = selectedExamCount();
-        const minutes = Math.ceil((count * SECONDS_PER_QUESTION) / 60);
-        $('exam-time-note').textContent = 'Время на экзамен: ' + minutes + ' мин';
+        const chosen = new Set(Array.from(document.querySelectorAll('#exam-categories input:checked')).map(n => Number(n.value)));
+        const available = categories.filter(c => chosen.has(c.id)).reduce((sum, c) => sum + (Number(c.question_count) || 0), 0);
+        const actual = Math.min(count, available);
+        $('exam-time-note').textContent = 'Вопросов: ' + actual + ' · Время: ' + (actual * SECONDS_PER_QUESTION / 60).toLocaleString('ru-RU') + ' мин';
+        $('exam-topics-note').textContent = chosen.size ? 'Выбрано тем: ' + chosen.size + ' из ' + categories.length : 'Выберите хотя бы одну тему';
+        $('exam-start').disabled = examStarting || actual === 0;
+        document.querySelectorAll('#exam-setup-view input').forEach(n => { n.disabled = examStarting; });
     }
 
     async function openExamSetup() {
@@ -1035,6 +1042,7 @@
             input.type = 'checkbox';
             input.value = String(category.id);
             input.checked = category.in_exam !== false;
+            input.addEventListener('change', updateTimeNote);
             const badge = document.createElement('span');
             badge.className = 'badge';
             badge.textContent = '✓';
@@ -1047,6 +1055,7 @@
             list.appendChild(label);
         });
         updateTimeNote();
+        $('exam-topics-settings').open = false;
         show('exam-setup');
     }
 
@@ -1067,6 +1076,7 @@
                 index: exam.index,
                 startedAt: exam.startedAt,
                 deadline: exam.deadline,
+                visited: exam.visited,
             }));
         } catch (err) {
             // хранилище недоступно или переполнено — экзамен просто не переживёт закрытие вкладки
@@ -1108,6 +1118,8 @@
             deadline: data.deadline,
             timerId: null,
             finishing: false,
+            visited: Array.isArray(data.visited) && data.visited.length === data.questions.length && data.visited.every(v => typeof v === 'boolean')
+                ? data.visited : data.questions.map((_, i) => i <= data.index || Boolean(data.answers[i])),
         };
     }
 
@@ -1137,6 +1149,7 @@
         show('exam');
         renderExamQuestion();
         startTimer();
+        focusExamQuestion();
     }
 
     function finishSavedExam() {
@@ -1175,6 +1188,7 @@
         $('exam-prev').disabled = exam.finishing || exam.index === 0;
         $('exam-next').disabled = exam.finishing || exam.index === exam.questions.length - 1;
         $('exam-finish').disabled = exam.finishing;
+        document.querySelectorAll('#exam-map button').forEach(button => { button.disabled = exam.finishing; });
     }
 
     function startTimer(autoFinish = true) {
@@ -1197,6 +1211,7 @@
     }
 
     async function startExam() {
+        if (examStarting) return;
         showError('');
         const chosen = Array.from(document.querySelectorAll('#exam-categories input:checked')).map((el) => el.value);
         if (chosen.length === 0) {
@@ -1204,13 +1219,17 @@
             return;
         }
         const count = selectedExamCount();
+        const revision = viewRevision;
+        examStarting = true;
+        updateTimeNote();
         let loaded;
         try {
             loaded = await api('/api/exam?count=' + count + '&categories=' + chosen.join(','));
+            if (revision !== viewRevision) return;
         } catch (err) {
-            showError(err.message);
+            if (revision === viewRevision) showError(err.message);
             return;
-        }
+        } finally { examStarting = false; updateTimeNote(); }
         if (loaded.length === 0) {
             showError('В выбранных темах нет вопросов');
             return;
@@ -1223,15 +1242,19 @@
             deadline: Date.now() + loaded.length * SECONDS_PER_QUESTION * 1000,
             timerId: null,
             finishing: false,
+            visited: loaded.map(() => false),
         };
         saveExam();
+        $('exam-overview').open = false;
         show('exam');
         renderExamQuestion();
         startTimer();
+        focusExamQuestion();
     }
 
     function renderExamQuestion() {
         const question = exam.questions[exam.index];
+        exam.visited[exam.index] = true;
         $('exam-progress').textContent = 'Вопрос ' + (exam.index + 1) + ' из ' + exam.questions.length;
         renderRich($('exam-question'), question.question_text);
         $('exam-hint').textContent = hintText(question);
@@ -1253,10 +1276,64 @@
                 }
                 exam.answers[exam.index] = collectAnswer(options);
                 saveExam();
+                renderExamOverview();
             });
             options.appendChild(label);
         });
+        renderExamOverview();
         updateExamControls();
+        saveExam();
+    }
+
+    function renderExamOverview() {
+        const map = $('exam-map');
+        if (overviewQuestions !== exam.questions) {
+            overviewQuestions = exam.questions;
+            map.textContent = '';
+            exam.questions.forEach((_, i) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'exam-number';
+                button.append(document.createTextNode(String(i + 1)));
+                const status = document.createElement('span');
+                status.className = 'exam-number-status';
+                status.setAttribute('aria-hidden', 'true');
+                button.appendChild(status);
+                button.addEventListener('click', () => {
+                    if (window.matchMedia('(max-width: 600px)').matches) $('exam-overview').open = false;
+                    jumpExamQuestion(i);
+                });
+                map.appendChild(button);
+            });
+        }
+        const answered = exam.answers.filter(Boolean).length;
+        $('exam-answered').textContent = 'Отвечено ' + answered + ' из ' + exam.questions.length;
+        Array.from(map.children).forEach((button, i) => {
+            const state = exam.answers[i] ? 'answered' : exam.visited[i] ? 'skipped' : 'unvisited';
+            const current = i === exam.index;
+            button.dataset.state = state;
+            button.classList.toggle('current', current);
+            if (current) button.setAttribute('aria-current', 'step');
+            else button.removeAttribute('aria-current');
+            button.setAttribute('aria-label', 'Вопрос ' + (i + 1) + ': '
+                + (state === 'answered' ? 'отвечен' : state === 'skipped' && !current ? 'пропущен' : 'без ответа')
+                + (current ? ', текущий' : state === 'unvisited' ? ', ещё не открыт' : ''));
+            button.querySelector('span').textContent = state === 'answered' ? '●' : state === 'skipped' && !current ? '—' : '○';
+        });
+    }
+
+    function focusExamQuestion() {
+        $('exam-question').tabIndex = -1;
+        $('exam-question').focus({ preventScroll: true });
+        document.querySelector('.exam-bar').scrollIntoView({ block: 'start' });
+    }
+
+    function jumpExamQuestion(index) {
+        if (!exam || exam.finishing || !Number.isInteger(index) || index < 0 || index >= exam.questions.length) return;
+        exam.index = index;
+        if (window.matchMedia('(max-width: 600px)').matches) $('exam-overview').open = false;
+        renderExamQuestion();
+        focusExamQuestion();
     }
 
     async function finishExam(auto) {
@@ -1859,16 +1936,12 @@
     $('exam-start').addEventListener('click', startExam);
     $('exam-prev').addEventListener('click', () => {
         if (exam && !exam.finishing && exam.index > 0) {
-            exam.index -= 1;
-            saveExam();
-            renderExamQuestion();
+            jumpExamQuestion(exam.index - 1);
         }
     });
     $('exam-next').addEventListener('click', () => {
         if (exam && !exam.finishing && exam.index < exam.questions.length - 1) {
-            exam.index += 1;
-            saveExam();
-            renderExamQuestion();
+            jumpExamQuestion(exam.index + 1);
         }
     });
     $('exam-finish').addEventListener('click', () => finishExam(false));

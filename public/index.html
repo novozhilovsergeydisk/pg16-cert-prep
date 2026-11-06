@@ -169,12 +169,18 @@
                 <legend>Число вопросов</legend>
                 <div id="exam-count" class="chips"></div>
             </fieldset>
-            <fieldset>
-                <legend>Темы</legend>
-                <div id="exam-categories" class="options"></div>
-            </fieldset>
-            <p id="exam-time-note" class="progress"></p>
-            <button id="exam-start" class="btn" type="button">Начать экзамен</button>
+            <div class="exam-setup-summary">
+                <p id="exam-time-note" class="progress" role="status"></p>
+                <p id="exam-topics-note" class="progress"></p>
+                <button id="exam-start" class="btn" type="button">Начать экзамен</button>
+            </div>
+            <details id="exam-topics-settings" class="exam-topics-settings">
+                <summary>Темы экзамена</summary>
+                <fieldset>
+                    <legend>Выберите темы</legend>
+                    <div id="exam-categories" class="options"></div>
+                </fieldset>
+            </details>
         </section>
 
         <section id="exam-view" hidden>
@@ -182,6 +188,13 @@
                 <span id="exam-progress" class="progress"></span>
                 <span id="exam-timer" class="timer"></span>
             </div>
+            <details id="exam-overview" class="exam-overview">
+                <summary>Обзор вопросов · <span id="exam-answered" role="status"></span></summary>
+                <div class="exam-legend">
+                    <span>● Отвечен</span><span>— Пропущен</span><span>○ Не открыт</span><span>Рамка: текущий</span>
+                </div>
+                <nav id="exam-map" class="exam-map" aria-label="Переход к вопросу экзамена"></nav>
+            </details>
             <div id="exam-question" class="question"></div>
             <p id="exam-hint" class="hint" hidden></p>
             <div id="exam-options" class="options"></div>

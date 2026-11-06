@@ -966,3 +966,24 @@ h2[tabindex="-1"]:focus { outline: none; }
 @media (max-width: 600px) {
     #question-text, #check-question-text { scroll-margin-top: 20px; }
 }
+
+/* Компактная настройка и навигация экзамена без подсказок о верности. */
+.exam-setup-summary { margin: 18px 0; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.exam-setup-summary p { margin: 0 0 8px; }
+.exam-setup-summary .btn { margin-top: 6px; }
+.exam-topics-settings, .exam-overview { margin: 18px 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); }
+.exam-topics-settings summary, .exam-overview summary { cursor: pointer; min-height: 30px; font-weight: 600; }
+.exam-topics-settings fieldset { margin-top: 16px; }
+.exam-map { display: grid; grid-template-columns: repeat(auto-fill, minmax(48px, 1fr)); gap: 8px; }
+.exam-number { min-height: 52px; padding: 6px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--fg); cursor: pointer; font-weight: 600; }
+.exam-number-status { display: block; font-size: .7rem; line-height: 1.2; color: var(--muted); }
+.exam-number[data-state="answered"] { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); }
+.exam-number[data-state="skipped"]:not(.current) { border-style: dashed; }
+.exam-number.current { border: 2px solid var(--accent); }
+.exam-number:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.exam-number:disabled { opacity: .5; cursor: default; }
+.exam-bar { scroll-margin-top: 100px; }
+#exam-question:focus { outline: none; }
+@media (max-width: 600px) { .exam-bar { scroll-margin-top: 20px; } }
+
+.exam-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 12px 0; color: var(--muted); font-size: .85rem; }

@@ -1,0 +1,395 @@
+{
+  "setup320": {
+    "start": {
+      "x": 31,
+      "y": 472.796875,
+      "width": 173.046875,
+      "height": 48.796875,
+      "top": 472.796875,
+      "right": 204.046875,
+      "bottom": 521.59375,
+      "left": 31
+    },
+    "nav": {
+      "x": 0,
+      "y": 768.8125,
+      "width": 320,
+      "height": 75.1875,
+      "top": 768.8125,
+      "right": 320,
+      "bottom": 844,
+      "left": 0
+    },
+    "width": 320,
+    "scrollWidth": 320
+  },
+  "setup390": {
+    "start": {
+      "x": 31,
+      "y": 472.796875,
+      "width": 173.046875,
+      "height": 48.796875,
+      "top": 472.796875,
+      "right": 204.046875,
+      "bottom": 521.59375,
+      "left": 31
+    },
+    "nav": {
+      "x": 0,
+      "y": 768.8125,
+      "width": 390,
+      "height": 75.1875,
+      "top": 768.8125,
+      "right": 390,
+      "bottom": 844,
+      "left": 0
+    },
+    "width": 390,
+    "scrollWidth": 390
+  },
+  "setup1280": {
+    "start": {
+      "x": 299,
+      "y": 552.3125,
+      "width": 179.59375,
+      "height": 50.34375,
+      "top": 552.3125,
+      "right": 478.59375,
+      "bottom": 602.65625,
+      "left": 299
+    },
+    "nav": {
+      "x": 280,
+      "y": 157.328125,
+      "width": 720,
+      "height": 55.3125,
+      "top": 157.328125,
+      "right": 1000,
+      "bottom": 212.640625,
+      "left": 280
+    },
+    "width": 1280,
+    "scrollWidth": 1280
+  },
+  "overview390": {
+    "width": 390,
+    "scrollWidth": 390,
+    "mapWidth": 336,
+    "buttons": [
+      {
+        "width": 49.328125,
+        "height": 54.234375,
+        "state": "answered"
+      },
+      {
+        "width": 49.328125,
+        "height": 54.234375,
+        "state": "skipped"
+      },
+      {
+        "width": 49.328125,
+        "height": 54.234375,
+        "state": "skipped"
+      },
+      {
+        "width": 49.34375,
+        "height": 54.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 49.328125,
+        "height": 54.234375,
+        "state": "skipped"
+      },
+      {
+        "width": 49.328125,
+        "height": 54.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 49.328125,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 49.328125,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 49.328125,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 49.34375,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 49.328125,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 49.328125,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 49.328125,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 49.328125,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 49.328125,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 49.34375,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 49.328125,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 49.328125,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 49.328125,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 49.328125,
+        "height": 52.234375,
+        "state": "unvisited"
+      }
+    ]
+  },
+  "overview320": {
+    "width": 320,
+    "scrollWidth": 320,
+    "mapWidth": 266,
+    "buttons": [
+      {
+        "width": 60.5,
+        "height": 52.234375,
+        "state": "answered"
+      },
+      {
+        "width": 60.5,
+        "height": 52.234375,
+        "state": "skipped"
+      },
+      {
+        "width": 60.5,
+        "height": 52.234375,
+        "state": "skipped"
+      },
+      {
+        "width": 60.5,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 60.5,
+        "height": 54.234375,
+        "state": "skipped"
+      },
+      {
+        "width": 60.5,
+        "height": 54.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 60.5,
+        "height": 54.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 60.5,
+        "height": 54.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 60.5,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 60.5,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 60.5,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 60.5,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 60.5,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 60.5,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 60.5,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 60.5,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 60.5,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 60.5,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 60.5,
+        "height": 52.234375,
+        "state": "unvisited"
+      },
+      {
+        "width": 60.5,
+        "height": 52.234375,
+        "state": "unvisited"
+      }
+    ]
+  },
+  "overview1280": {
+    "width": 1280,
+    "scrollWidth": 1280,
+    "mapWidth": 690,
+    "buttons": [
+      {
+        "width": 50.15625,
+        "height": 55.78125,
+        "state": "answered"
+      },
+      {
+        "width": 50.171875,
+        "height": 55.78125,
+        "state": "skipped"
+      },
+      {
+        "width": 50.171875,
+        "height": 55.78125,
+        "state": "skipped"
+      },
+      {
+        "width": 50.15625,
+        "height": 55.78125,
+        "state": "unvisited"
+      },
+      {
+        "width": 50.171875,
+        "height": 55.78125,
+        "state": "skipped"
+      },
+      {
+        "width": 50.171875,
+        "height": 55.78125,
+        "state": "unvisited"
+      },
+      {
+        "width": 50.15625,
+        "height": 55.78125,
+        "state": "unvisited"
+      },
+      {
+        "width": 50.171875,
+        "height": 55.78125,
+        "state": "unvisited"
+      },
+      {
+        "width": 50.171875,
+        "height": 55.78125,
+        "state": "unvisited"
+      },
+      {
+        "width": 50.15625,
+        "height": 55.78125,
+        "state": "unvisited"
+      },
+      {
+        "width": 50.171875,
+        "height": 55.78125,
+        "state": "unvisited"
+      },
+      {
+        "width": 50.171875,
+        "height": 55.78125,
+        "state": "unvisited"
+      },
+      {
+        "width": 50.15625,
+        "height": 53.78125,
+        "state": "unvisited"
+      },
+      {
+        "width": 50.171875,
+        "height": 53.78125,
+        "state": "unvisited"
+      },
+      {
+        "width": 50.171875,
+        "height": 53.78125,
+        "state": "unvisited"
+      },
+      {
+        "width": 50.15625,
+        "height": 53.78125,
+        "state": "unvisited"
+      },
+      {
+        "width": 50.171875,
+        "height": 53.78125,
+        "state": "unvisited"
+      },
+      {
+        "width": 50.171875,
+        "height": 53.78125,
+        "state": "unvisited"
+      },
+      {
+        "width": 50.15625,
+        "height": 53.78125,
+        "state": "unvisited"
+      },
+      {
+        "width": 50.171875,
+        "height": 53.78125,
+        "state": "unvisited"
+      }
+    ]
+  }
+}
