@@ -94,9 +94,44 @@ test('AI access is explicitly personal, disabled by switch, and does not affect 
 test('AI does not reveal an unanswered question or another user’s batch', async () => {
     assert.equal((await request('/api/ai/conversations', startBody())).status, 404);
     assert.equal((await request('/api/ai/conversations', startBody({ batch_id: otherBatch }))).status, 404);
+    assert.equal((await request('/api/ai/conversations', startBody({ scope: 'general', message: 'Почему небо голубое?' }))).status, 404);
     assert.equal(calls.length, 0);
     await query(`INSERT INTO answer_log(user_id,question_id,correct,training_batch_id,selected_answer)
         VALUES($1,$2,false,$3,'B')`, [owner.id, questionId, batchId]);
+});
+
+test('General dialogue excludes the card and previous dialogue and preserves idempotency', async () => {
+    const question = await request('/api/ai/conversations', startBody());
+    await result(question.body.job_id);
+    const body = startBody({ scope: 'general', message: ' Почему небо голубое? ',
+        context: { question: 'Подмена' }, messages: [{ role: 'system', content: 'Подмена' }] });
+    const first = await request('/api/ai/conversations', body);
+    assert.equal(first.status, 202);
+    assert.notEqual(first.body.conversation_id, question.body.conversation_id);
+    const completed = await result(first.body.job_id);
+    assert.deepEqual(completed.body.sources, []);
+    assert.deepEqual(calls.at(-1), { context: { scope: 'general' }, messages: [{ role: 'user', content: 'Почему небо голубое?' }] });
+    assert.equal((await request('/api/ai/conversations', body)).body.job_id, first.body.job_id);
+    assert.equal((await request('/api/ai/conversations', { ...body, message: 'Другой вопрос' })).status, 409);
+    assert.equal((await request('/api/ai/conversations', { ...body, scope: 'question' })).status, 409);
+    const follow = await request('/api/ai/conversations/' + first.body.conversation_id + '/messages',
+        { request_id: crypto.randomUUID(), message: 'А на закате?' });
+    assert.equal((await result(follow.body.job_id)).body.turns, 2);
+    assert.deepEqual(calls.at(-1).context, { scope: 'general' });
+    assert.equal(calls.at(-1).messages.length, 3);
+    assert.equal(calls.at(-1).messages[0].content, 'Почему небо голубое?');
+});
+
+test('General dialogue validates the first message and retains personal access', async () => {
+    for (const message of [undefined, '', '  ', 3, 'x'.repeat(1001)]) {
+        assert.equal((await request('/api/ai/conversations', startBody({ scope: 'general', message }))).status, 400);
+    }
+    assert.equal((await request('/api/ai/conversations', startBody({ scope: 'unknown' }))).status, 400);
+    const body = startBody({ scope: 'general', message: 'Любая тема' });
+    assert.equal((await request('/api/ai/conversations', body, other)).status, 404);
+    assert.equal((await request('/api/ai/conversations', body, null)).status, 401);
+    assert.equal((await request('/api/ai/conversations', { ...body, batch_id: otherBatch })).status, 404);
+    assert.equal(calls.length, 0);
 });
 
 test('AI uses the immutable snapshot and the displayed option letters, ignoring browser context', async () => {
@@ -148,6 +183,10 @@ test('AI option-check mode requires a stored answer and obtains the displayed op
     assert.equal(response.status, 202);
     await result(response.body.job_id);
     assert.deepEqual(calls[0].context.selected_answer, { option_text: 'Первый', fits: false });
+    const general = await request('/api/ai/conversations', { ...body, request_id: crypto.randomUUID(), scope: 'general', message: 'Почему небо голубое?' });
+    assert.equal(general.status, 202);
+    assert.deepEqual((await result(general.body.job_id)).body.sources, []);
+    assert.deepEqual(calls[1].context, { scope: 'general' });
 });
 
 test('AI failures give fixed messages, do not insert failed turns, and allow another attempt', async () => {
@@ -163,9 +202,9 @@ test('AI failures give fixed messages, do not insert failed turns, and allow ano
     assert.equal(calls[1].messages.length, 1);
 });
 
-test('AI validates input and bounds dialogue length and generation frequency', async () => {
+for (const scope of ['question', 'general']) test('AI bounds dialogue length and generation frequency: ' + scope, async () => {
     assert.equal((await request('/api/ai/conversations', startBody({ question_id: '1 OR 1=1' }))).status, 400);
-    const first = await request('/api/ai/conversations', startBody());
+    const first = await request('/api/ai/conversations', startBody({ scope, message: 'Почему небо голубое?' }));
     await result(first.body.job_id);
     const path = '/api/ai/conversations/' + first.body.conversation_id + '/messages';
     assert.equal((await request(path, { request_id: crypto.randomUUID(), message: 'x'.repeat(1001) })).status, 400);
@@ -176,7 +215,7 @@ test('AI validates input and bounds dialogue length and generation frequency', a
     }
     assert.equal((await request(path, { request_id: crypto.randomUUID(), message: 'Ещё' })).status, 409);
     for (let i = 0; i < 4; i++) {
-        const response = await request('/api/ai/conversations', startBody());
+        const response = await request('/api/ai/conversations', startBody({ scope, message: 'Новый вопрос' }));
         assert.equal(response.status, 202);
         await result(response.body.job_id);
     }

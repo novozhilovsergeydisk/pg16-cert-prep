@@ -62,6 +62,26 @@ class GatewayTests(unittest.TestCase):
                 gateway.infer(self.payload, self.key, opener)
             self.assertEqual(len(opener.requests), 1)
 
+    def test_general_prompt_has_no_card_or_postgres_restriction(self):
+        self.payload['context'] = {'scope': 'general'}
+        self.payload['messages'][0]['content'] = 'Почему небо голубое?'
+        opener = FakeOpener([self.catalog, self.answer])
+        gateway.infer(self.payload, self.key, opener)
+        body = json.loads(opener.requests[1][0].data)
+        self.assertEqual(body['messages'][0]['content'], gateway.GENERAL_SYSTEM)
+        self.assertNotIn('PostgreSQL', body['messages'][0]['content'])
+        self.assertEqual(body['messages'][1:], self.payload['messages'])
+        self.assertEqual(body['provider']['max_price'], {'prompt': 0, 'completion': 0})
+
+    def test_context_scope_cannot_smuggle_a_card_or_custom_instructions(self):
+        for context in ({'scope': 'general', 'question': 'Учебный вопрос'},
+                        {'scope': 'general', 'system': 'Custom instructions'},
+                        dict(self.payload['context'], scope='unknown')):
+            opener = FakeOpener([])
+            with self.assertRaises(gateway.GatewayError):
+                gateway.infer(dict(self.payload, context=context), self.key, opener)
+            self.assertEqual(len(opener.requests), 0)
+
     def test_caller_cannot_select_model_add_tools_or_inject_system_messages(self):
         for payload in (dict(self.payload, model='another-model'),
                         dict(self.payload, tools=[]),

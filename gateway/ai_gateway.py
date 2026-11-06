@@ -29,6 +29,15 @@ SYSTEM = (
     'Не придумывай столбцы, параметры, ссылки и цитаты. '
     'Отвечай обычным текстом с абзацами, без HTML и без обратных кавычек.'
 )
+GENERAL_SYSTEM = (
+    'Ты — универсальный помощник. Отвечай на вопросы по любой теме по-русски, конкретно и кратко, '
+    'обычно до 200 слов. Учитывай историю текущего диалога. '
+    'Не выдавай догадки за факты. Если данных недостаточно, уточни вопрос. '
+    'У тебя нет доступа к интернет-поиску, инструментам, файлам пользователя и выполнению команд. '
+    'Не утверждай, что проверил актуальные сведения или выполнил действие, если этого не было. '
+    'Не придумывай ссылки и цитаты. '
+    'Отвечай обычным текстом с абзацами, без HTML и без обратных кавычек.'
+)
 
 
 class GatewayError(Exception):
@@ -61,9 +70,13 @@ def validate(payload):
     if not isinstance(payload, dict) or set(payload) != {'context', 'messages'}:
         raise GatewayError('AI_INVALID')
     context, messages = payload['context'], payload['messages']
-    if not isinstance(context, dict) or context.get('version') != 'PostgreSQL 16':
+    if not isinstance(context, dict):
         raise GatewayError('AI_INVALID')
-    if not isinstance(context.get('question'), str) or not context['question'].strip():
+    if context.get('scope') == 'general':
+        if set(context) != {'scope'}:
+            raise GatewayError('AI_INVALID')
+    elif ('scope' in context or context.get('version') != 'PostgreSQL 16'
+          or not isinstance(context.get('question'), str) or not context['question'].strip()):
         raise GatewayError('AI_INVALID')
     if len(json.dumps(context, ensure_ascii=False, separators=(',', ':')).encode()) > 32000:
         raise GatewayError('AI_INVALID')
@@ -116,10 +129,11 @@ def free_model(catalog):
 def infer(payload, key, opener):
     context, messages = validate(payload)
     free_model(request(opener, 'models'))
+    system = (GENERAL_SYSTEM if context.get('scope') == 'general' else
+              SYSTEM + '\nУчебный контекст:\n' + json.dumps(context, ensure_ascii=False))
     body = {
         'model': MODEL,
-        'messages': [{'role': 'system', 'content': SYSTEM + '\nУчебный контекст:\n'
-                      + json.dumps(context, ensure_ascii=False)}] + messages,
+        'messages': [{'role': 'system', 'content': system}] + messages,
         'reasoning': {'enabled': True},
         'max_tokens': 2048,
         'stream': False,

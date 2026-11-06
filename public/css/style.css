@@ -929,6 +929,8 @@ pre code {
 }
 /* Личный помощник: длинные SQL-фрагменты не расширяют карточку на мобильном экране. */
 .ai-assistant { margin: 1rem 0; padding-top: 1rem; border-top: 1px solid var(--border); }
+.ai-modes { margin: 0 0 1rem; padding: .7rem; border: 1px solid var(--border); border-radius: var(--radius); }
+.ai-modes label { display: inline-flex; align-items: center; gap: .4rem; margin: .3rem .8rem .3rem 0; }
 .ai-message { margin: 1rem 0; }
 .ai-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .ai-form label { display: block; color: var(--muted); }

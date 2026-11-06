@@ -109,7 +109,7 @@ function createAiRouter({ pool = require('../config/db'), requireAuth = authenti
             job.state = 'done';
             job.answer = result.answer;
             job.turns = conversation.turns;
-            job.sources = conversation.context.references.map(({ title, url }) => ({ title, url }));
+            job.sources = (conversation.context.references || []).map(({ title, url }) => ({ title, url }));
         }).catch((err) => {
             logError('ai_gateway', err);
             job.state = 'failed';
@@ -121,12 +121,17 @@ function createAiRouter({ pool = require('../config/db'), requireAuth = authenti
 
     router.post('/ai/conversations', async (req, res) => {
         const body = req.body || {};
+        const scope = body.scope === undefined ? 'question' : body.scope;
         const batchId = id(body.batch_id), questionId = id(body.question_id);
         if (typeof body.request_id !== 'string' || !UUID.test(body.request_id) || !batchId || !questionId
-            || !['training', 'option-check'].includes(body.mode)) {
+            || !['training', 'option-check'].includes(body.mode) || !['question', 'general'].includes(scope)) {
             return res.status(400).json({ error: 'Некорректные параметры вопроса' });
         }
-        const fingerprint = JSON.stringify([body.mode, batchId, questionId]);
+        if (scope === 'general' && (typeof body.message !== 'string' || !body.message.trim() || body.message.length > 1000)) {
+            return res.status(400).json({ error: 'Введите вопрос длиной от 1 до 1000 символов' });
+        }
+        const message = scope === 'general' ? body.message.trim() : FIRST_MESSAGE;
+        const fingerprint = createHash('sha256').update(JSON.stringify([scope, body.mode, batchId, questionId, message])).digest('hex');
         if (repeated(req, res, fingerprint) || !reserve(req, res)) return;
         try {
             const context = await loadContext(pool, req.user.id, { mode: body.mode, batch_id: batchId, question_id: questionId });
@@ -134,10 +139,11 @@ function createAiRouter({ pool = require('../config/db'), requireAuth = authenti
                 active.delete(req.user.id);
                 return res.status(404).json({ error: 'Сначала ответьте на вопрос в этой порции' });
             }
-            const conversation = { id: randomUUID(), userId: req.user.id, context,
+            const conversation = { id: randomUUID(), userId: req.user.id,
+                context: scope === 'general' ? { scope: 'general' } : context,
                 messages: [], turns: 0, expires: now() + TTL_MS };
             conversations.set(conversation.id, conversation);
-            enqueue(req, res, conversation, FIRST_MESSAGE, fingerprint);
+            enqueue(req, res, conversation, message, fingerprint);
         } catch (err) {
             active.delete(req.user.id);
             noteError(res, err);
@@ -153,13 +159,13 @@ function createAiRouter({ pool = require('../config/db'), requireAuth = authenti
         }
         const conversation = conversations.get(req.params.id);
         if (!conversation || conversation.userId !== req.user.id) {
-            return res.status(404).json({ error: 'Диалог истёк. Нажмите «Объяснить подробнее» ещё раз.' });
+            return res.status(404).json({ error: 'Диалог истёк. Начните новый диалог.' });
         }
         const message = body.message.trim();
         const fingerprint = createHash('sha256').update(JSON.stringify([conversation.id, message])).digest('hex');
         if (repeated(req, res, fingerprint)) return;
         if (conversation.turns >= MAX_TURNS || Buffer.byteLength(JSON.stringify(conversation.messages)) > 48000) {
-            return res.status(409).json({ error: 'Диалог слишком длинный. Нажмите «Объяснить подробнее» для нового диалога.' });
+            return res.status(409).json({ error: 'Диалог слишком длинный. Начните новый диалог.' });
         }
         if (!reserve(req, res)) return;
         enqueue(req, res, conversation, message, fingerprint);
@@ -168,7 +174,7 @@ function createAiRouter({ pool = require('../config/db'), requireAuth = authenti
     router.get('/ai/jobs/:id', (req, res) => {
         const job = jobs.get(req.params.id);
         if (!job || job.userId !== req.user.id) {
-            return res.status(404).json({ error: 'Запрос не найден или истёк. Нажмите «Объяснить подробнее» ещё раз.' });
+            return res.status(404).json({ error: 'Запрос не найден или истёк. Начните новый диалог.' });
         }
         res.json({ state: job.state, answer: job.answer, error: job.error, sources: job.sources,
             turns: job.turns, max_turns: MAX_TURNS });

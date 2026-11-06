@@ -125,6 +125,97 @@ test('AI UI reuses request_id after an uncertain POST and does not duplicate mes
     assert.equal(await page.locator('.ai-message').count(), 1);
 });
 
+test('General mode starts immediately, retries safely, and resets the dialogue when switching', async (t) => {
+    const sent = [];
+    let turns = 0;
+    const page = await pageFor(t, (route) => {
+        if (route.request().url().endsWith('/status')) return reply(route, { enabled: true });
+        if (route.request().method() === 'POST') {
+            sent.push({ path: new URL(route.request().url()).pathname, body: route.request().postDataJSON() });
+            if (sent.length === 1) return route.abort();
+            turns++;
+            return reply(route, { job_id: 'job', conversation_id: 'general-conversation' }, 202);
+        }
+        return reply(route, { ...done('Ответ ' + turns, turns), sources: [] });
+    });
+    assert.equal(await page.getByRole('radio', { name: 'По текущему вопросу', exact: true }).isChecked(), true);
+    await page.getByRole('radio', { name: 'Любая тема', exact: true }).check();
+    await page.getByLabel('Ваш вопрос', { exact: true }).fill('Почему небо голубое?');
+    await page.getByRole('button', { name: 'Спросить', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: 'Связь прервалась' }).waitFor();
+    await page.getByRole('button', { name: 'Спросить', exact: true }).click();
+    await page.getByText('Ответ 1', { exact: true }).waitFor();
+    assert.equal(sent[0].body.request_id, sent[1].body.request_id);
+    assert.equal(sent[1].body.scope, 'general');
+    assert.equal(sent[1].body.message, 'Почему небо голубое?');
+    assert.equal(await page.locator('.ai-message').count(), 2);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 320);
+    await page.getByLabel('Ваш вопрос', { exact: true }).fill('А на закате?');
+    await page.getByRole('button', { name: 'Спросить', exact: true }).click();
+    await page.getByText('Ответ 2', { exact: true }).waitFor();
+    assert.match(sent[2].path, /general-conversation\/messages$/);
+    await page.getByRole('radio', { name: 'По текущему вопросу', exact: true }).check();
+    assert.equal(await page.locator('.ai-message').count(), 0);
+    assert.equal(await page.getByLabel('Уточнение по этому вопросу').isVisible(), false);
+    await page.getByRole('button', { name: 'Объяснить подробнее' }).click();
+    await page.getByText('Ответ 3', { exact: true }).waitFor();
+    assert.equal(sent[3].path, '/api/ai/conversations');
+    assert.equal(sent[3].body.scope, 'question');
+    assert.equal(sent[3].body.message, undefined);
+    await page.getByRole('radio', { name: 'Любая тема', exact: true }).check();
+    assert.equal(await page.locator('.ai-message').count(), 0);
+    assert.equal(await page.getByLabel('Ваш вопрос', { exact: true }).inputValue(), '');
+});
+
+test('General dialogue can restart after reaching the turn limit without sending an automatic question', async (t) => {
+    const sent = [];
+    const page = await pageFor(t, (route) => {
+        if (route.request().url().endsWith('/status')) return reply(route, { enabled: true });
+        if (route.request().method() === 'POST') {
+            sent.push(route.request().postDataJSON());
+            return reply(route, { job_id: 'job', conversation_id: 'conversation' }, 202);
+        }
+        return reply(route, { ...done('Последний ответ', 6), sources: [] });
+    });
+    await page.getByRole('radio', { name: 'Любая тема', exact: true }).check();
+    await page.getByLabel('Ваш вопрос', { exact: true }).fill('Первый вопрос');
+    await page.getByRole('button', { name: 'Спросить', exact: true }).click();
+    await page.getByText('Последний ответ', { exact: true }).waitFor();
+    assert.equal(await page.getByLabel('Ваш вопрос', { exact: true }).isVisible(), false);
+    await page.getByRole('button', { name: 'Новый диалог', exact: true }).click();
+    assert.equal(sent.length, 1);
+    assert.equal(await page.locator('.ai-message').count(), 0);
+    await page.getByLabel('Ваш вопрос', { exact: true }).fill('Новый вопрос');
+    await page.getByRole('button', { name: 'Спросить', exact: true }).click();
+    await page.getByText('Последний ответ', { exact: true }).waitFor();
+    assert.equal(sent.length, 2);
+    assert.notEqual(sent[0].request_id, sent[1].request_id);
+    assert.equal(sent[1].message, 'Новый вопрос');
+});
+
+test('Switching topic ignores an in-flight response and does not disable the new form', async (t) => {
+    let release, reached;
+    const waiting = new Promise(resolve => { reached = resolve; });
+    const page = await pageFor(t, async (route) => {
+        if (route.request().url().endsWith('/status')) return reply(route, { enabled: true });
+        if (route.request().method() === 'POST') {
+            reached();
+            await new Promise(resolve => { release = resolve; });
+            return reply(route, { job_id: 'old', conversation_id: 'old' }, 202);
+        }
+        return reply(route, done('Старый ответ'));
+    });
+    t.after(() => { if (release) release(); });
+    await page.getByRole('button', { name: 'Объяснить подробнее' }).click();
+    await waiting;
+    await page.getByRole('radio', { name: 'Любая тема', exact: true }).check();
+    release();
+    await page.waitForTimeout(100);
+    assert.equal(await page.getByText('Старый ответ').count(), 0);
+    assert.equal(await page.getByLabel('Ваш вопрос', { exact: true }).isEnabled(), true);
+    assert.equal(await page.getByRole('button', { name: 'Спросить', exact: true }).isEnabled(), true);
+});
+
 test('Full application offers AI only after a saved answer in both modes and survives a missing AI script', async () => {
     process.env.NODE_ENV = 'test';
     process.env.DOTENV_CONFIG_QUIET = 'true';
