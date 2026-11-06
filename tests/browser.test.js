@@ -206,7 +206,7 @@ for (const [name, fail, kind] of [
         await choose(page, q.correct_answer);
         await page.locator('#submit').click();
         await page.locator('#error').waitFor({ state: 'visible' });
-        assert.equal(await page.locator('#error').textContent(), 'Сервер не ответил, ответ не сохранён — нажмите «Ответить» ещё раз');
+        assert.equal(await page.locator('#error').textContent(), 'Не удалось подтвердить сохранение. Повторите отправку — ответ не продублируется.');
         assert.equal(await page.locator('#submit').isEnabled(), true);
         // Ответ не подтверждён: выбор заблокирован, повтор отправит тот же ответ.
         assert.equal(await page.locator('#options input:enabled').count(), 0);
@@ -235,7 +235,7 @@ test('Тренировка: сервер молчит 15 с — страница
     assert.equal(await page.locator('#error').isVisible(), false);
     await page.clock.fastForward('00:16');
     await page.locator('#error').waitFor({ state: 'visible' });
-    assert.equal(await page.locator('#error').textContent(), 'Сервер не ответил, ответ не сохранён — нажмите «Ответить» ещё раз');
+    assert.equal(await page.locator('#error').textContent(), 'Не удалось подтвердить сохранение. Повторите отправку — ответ не продублируется.');
     assert.equal(await page.locator('#submit').isEnabled(), true);
     await expectReport(reports, 'timeout');
     assert.ok(reports[0].ms >= 15000);
@@ -400,7 +400,7 @@ test('Подходит или нет: после потери подтвержд
     });
     await page.locator('#check-no').click();
     await page.locator('#error').waitFor({ state: 'visible' });
-    assert.equal(await page.locator('#error').textContent(), 'Сервер не ответил, ответ не сохранён — нажмите «Ответить» ещё раз');
+    assert.equal(await page.locator('#error').textContent(), 'Не удалось подтвердить сохранение. Повторите отправку — ответ не продублируется.');
     assert.equal(await page.locator('#check-no').isEnabled(), true);
     assert.equal(await page.locator('#check-yes').isDisabled(), true);
     await page.locator('#check-no').click();

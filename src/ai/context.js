@@ -15,14 +15,15 @@ async function loadContext(pool, userId, { mode, batch_id: batchId, question_id:
         )).rows[0];
     } else {
         row = (await pool.query(
-            `SELECT jsonb_build_object('question_text', q.question_text, 'options', q.options,
+            `SELECT COALESCE(card->'snapshot'->'question', jsonb_build_object('question_text', q.question_text, 'options', q.options,
                     'correct_answer', q.correct_answer, 'explanation', q.explanation,
-                    'option_notes', q.option_notes) AS question,
-                    a.option_key, a.fits, c.name AS category_name
+                    'option_notes', q.option_notes)) AS question,
+                    a.option_key, a.fits, b.category_name
              FROM option_check_answers a
+             JOIN option_check_batches b ON b.id=a.batch_id AND b.user_id=a.user_id
+             CROSS JOIN LATERAL jsonb_array_elements(b.cards) card
              JOIN questions q ON q.id=a.question_id
-             JOIN categories c ON c.id=q.category_id
-             WHERE a.batch_id=$1 AND a.user_id=$2 AND a.question_id=$3`,
+             WHERE a.batch_id=$1 AND a.user_id=$2 AND a.question_id=$3 AND (card->>'question_id')::int=$3`,
             [batchId, userId, questionId]
         )).rows[0];
     }

@@ -32,7 +32,12 @@ function buildCards(rows) {
         const right = keys.filter((key) => q.correct_answer.includes(key));
         const wrong = keys.filter((key) => !q.correct_answer.includes(key));
         const isCorrect = wanted[i] || wrong.length === 0;
-        return { question_id: q.id, key: pick(isCorrect ? right : wrong), is_correct: isCorrect };
+        const key = pick(isCorrect ? right : wrong);
+        return { question_id: q.id, key, is_correct: isCorrect,
+            snapshot: { question_text: q.question_text, option_text: q.options[key], multi: q.correct_answer.length > 1,
+                explanation: q.explanation, option_note: (q.option_notes || {})[key] || '',
+                question: { question_text: q.question_text, options: q.options, correct_answer: q.correct_answer,
+                    explanation: q.explanation, option_notes: q.option_notes } } };
     });
 }
 
@@ -55,7 +60,7 @@ async function createOptionCheckBatch(req, res) {
         if (!category.rowCount) return res.status(404).json({ error: 'Раздел не найден' });
         // Сначала вопросы, которые пользователь в этом режиме ещё не видел или видел давнее всех.
         const rows = (await pool.query(
-            `SELECT q.id, q.question_text, q.options, q.correct_answer
+            `SELECT q.id, q.question_text, q.options, q.correct_answer, q.explanation, q.option_notes
              FROM questions q
              LEFT JOIN LATERAL (
                  SELECT max(answered_at) AS last_at FROM option_check_answers WHERE user_id=$1 AND question_id=q.id
@@ -92,7 +97,7 @@ async function postOptionCheck(req, res) {
         if (!batch.rowCount) return res.status(404).json({ error: 'Порция не найдена' });
         const card = batch.rows[0].cards.find((item) => item.question_id === questionId);
         if (!card) return res.status(400).json({ error: 'Вопрос не входит в эту порцию' });
-        const question = (await pool.query(
+        const question = card.snapshot ? { explanation: card.snapshot.explanation, option_notes: { [card.key]: card.snapshot.option_note } } : (await pool.query(
             'SELECT explanation, option_notes FROM questions WHERE id=$1', [questionId]
         )).rows[0];
         if (!question) return res.status(404).json({ error: 'Вопрос не найден' });
@@ -112,7 +117,7 @@ async function postOptionCheck(req, res) {
                 return res.status(409).json({ error: 'Ответ на эту карточку уже сохранён' });
             }
         }
-        res.json({ right, option_fits: card.is_correct, option_note: question.option_notes[card.key] || '',
+        res.json({ right, option_fits: card.is_correct, option_note: (question.option_notes || {})[card.key] || '',
             explanation: question.explanation });
     } catch (err) {
         noteError(res, err);
@@ -120,4 +125,33 @@ async function postOptionCheck(req, res) {
     }
 }
 
-module.exports = { createOptionCheckBatch, postOptionCheck };
+async function resumeOptionCheckBatch(req, res) {
+    const id = parseId(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Некорректный номер порции' });
+    try {
+        const row = await pool.query('SELECT id,category_id,category_name,cards FROM option_check_batches WHERE id=$1 AND user_id=$2', [id, req.user.id]);
+        if (!row.rowCount) return res.status(404).json({ error: 'Порция не найдена' });
+        const batch = row.rows[0];
+        const answers = (await pool.query('SELECT question_id,fits,is_right,option_is_correct FROM option_check_answers WHERE batch_id=$1 AND user_id=$2', [id, req.user.id])).rows;
+        const saved = new Map(answers.map(a => [a.question_id, a]));
+        const missing = batch.cards.filter(c => !c.snapshot).map(c => c.question_id);
+        const oldQuestions = missing.length ? (await pool.query('SELECT id,question_text,options,correct_answer,explanation,option_notes FROM questions WHERE id=ANY($1::int[])', [missing])).rows : [];
+        const byId = new Map(oldQuestions.map(q => [q.id, q]));
+        const cards = batch.cards.map(card => {
+            const q = byId.get(card.question_id);
+            const snapshot = card.snapshot || (q && { ...publicCard(card, q), explanation: q.explanation, option_note: (q.option_notes || {})[card.key] || '' });
+            if (!snapshot) return null;
+            const answer = saved.get(card.question_id);
+            return { question_id: card.question_id, question_text: snapshot.question_text, option_text: snapshot.option_text, multi: snapshot.multi,
+                answer: answer ? { fits: answer.fits } : null,
+                result: answer ? { right: answer.is_right, option_fits: answer.option_is_correct, explanation: snapshot.explanation, option_note: snapshot.option_note } : null };
+        });
+        if (cards.some(c => !c)) return res.status(409).json({ error: 'Часть старой порции больше недоступна. Откройте тему для новой тренировки.' });
+        res.json({ id: batch.id, category_id: batch.category_id, category_name: batch.category_name, cards });
+    } catch (err) {
+        noteError(res, err);
+        res.status(500).json({ error: 'Не удалось восстановить карточки. Попробуйте ещё раз.' });
+    }
+}
+
+module.exports = { createOptionCheckBatch, postOptionCheck, resumeOptionCheckBatch };

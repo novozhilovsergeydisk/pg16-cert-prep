@@ -294,6 +294,7 @@ test('Full application offers AI only after a saved answer in both modes and sur
         assert.equal(sent[1].question_id, questionId);
         await page.route('**/js/ai.js', (route) => route.abort());
         await page.reload();
+        await page.locator('#mode-train').click();
         await page.locator('#categories .card').filter({ hasText: name }).click();
         await page.locator('#options .option:has(input[value="A"])').click();
         await page.locator('#submit').click();

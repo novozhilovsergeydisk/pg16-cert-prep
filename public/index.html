@@ -77,6 +77,11 @@
         </section>
 
         <section id="categories-view">
+            <div id="practice-resume" class="result resume" hidden>
+                <p id="practice-resume-text"></p>
+                <button id="practice-resume-button" class="btn" type="button">Продолжить тренировку</button>
+            </div>
+            <p id="practice-loading" role="status" hidden>Загружаю тренировку…</p>
             <div id="exam-resume" class="result resume" hidden>
                 <p id="exam-resume-text"></p>
                 <div class="actions">
@@ -92,6 +97,7 @@
                 <button id="mode-check" class="mode-btn" type="button" aria-pressed="false">Подходит или нет</button>
             </div>
             <h2>Категории</h2>
+            <p id="categories-loading" class="progress" role="status" hidden>Загружаю темы…</p>
             <ul id="categories" class="cards"></ul>
         </section>
 
@@ -120,7 +126,7 @@
                 <button id="submit" class="btn" type="submit">Ответить</button>
             </form>
             <div id="result" class="result" hidden>
-                <p id="result-status" class="status"></p>
+                <p id="result-status" class="status" role="status"></p>
                 <p id="result-correct"></p>
                 <p id="result-explanation" class="explanation"></p>
                 <div id="ai-question" hidden></div>
@@ -141,7 +147,7 @@
                 <button id="check-no" class="btn-secondary" type="button">Не подходит</button>
             </div>
             <div id="check-result" class="result" hidden>
-                <p id="check-status" class="status"></p>
+                <p id="check-status" class="status" role="status"></p>
                 <p id="check-fits"></p>
                 <p id="check-note" class="explanation"></p>
                 <p id="check-explanation" class="explanation"></p>

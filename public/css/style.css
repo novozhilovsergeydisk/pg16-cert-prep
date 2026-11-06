@@ -960,3 +960,9 @@ pre code {
 }
 
 h2[tabindex="-1"]:focus { outline: none; }
+
+#question-text, #check-question-text { scroll-margin-top: 100px; }
+#question-text:focus, #check-question-text:focus { outline: none; }
+@media (max-width: 600px) {
+    #question-text, #check-question-text { scroll-margin-top: 20px; }
+}

@@ -32,6 +32,9 @@
     let checkBatch = null;
     let checkIndex = 0;
     let checkScore = 0;
+    const savedTraining = new Map();
+    const savedChecks = new Map();
+    let practiceLoading = false;
     const unconfirmedChecks = new Map();
     let trainingHistoryBefore = null;
     let index = 0;
@@ -113,14 +116,9 @@
         } else if (section === 'training') {
             const view = lastViews.training;
             if (view === 'categories' || !categories.length || (!fromHistory && sectionOf(activeView) === 'training')) await loadCategories();
-            else {
-                show(view);
-                if (view === 'question' && !$('result').hidden && questions[index]) {
-                    ai.offer($('ai-question'), { mode: 'training', batch_id: trainingBatchId, question_id: questions[index].id });
-                } else if (view === 'option-check' && !$('check-result').hidden && checkBatch?.cards[checkIndex]) {
-                    ai.offer($('ai-check'), { mode: 'option-check', batch_id: checkBatch.id, question_id: checkBatch.cards[checkIndex].question_id });
-                }
-            }
+            else if (view === 'question') showQuestion();
+            else if (view === 'option-check') showCheckCard();
+            else show(view);
         } else show(section === 'results' && !fromHistory ? 'results' : lastViews[section]);
         if (location.hash !== '#/' + section && user && sectionOf(activeView) === section) {
             history.replaceState({ section }, '', '#/' + section);
@@ -131,11 +129,12 @@
         const box = $('error');
         box.textContent = message;
         box.hidden = !message;
+        if (message) box.scrollIntoView({ block: 'nearest' });
     }
 
     // Сколько страница ждёт ответа сервера. На сервере ограничения меньше: БД 5 с, nginx 60 с.
     const API_TIMEOUT_MS = 15000;
-    const ANSWER_NOT_SAVED = 'Сервер не ответил, ответ не сохранён — нажмите «Ответить» ещё раз';
+    const ANSWER_NOT_SAVED = 'Не удалось подтвердить сохранение. Повторите отправку — ответ не продублируется.';
     // Сбои без подтверждения от нашего сервера: время вышло, сеть недоступна, ответ не в JSON.
     const NO_RESPONSE = ['timeout', 'network', 'gateway'];
 
@@ -252,6 +251,8 @@
     function showLogin() {
         user = null;
         ai.setUser(null);
+        savedTraining.clear(); savedChecks.clear();
+        unconfirmedAnswers.clear(); unconfirmedChecks.clear();
         stopTimer();
         exam = null;
         // Данные незавершённого входа не должны пережить выход или истечение сеанса.
@@ -412,6 +413,8 @@
         ai.setUser(me);
         applyAccent(me.accent);
         applyTheme(me.theme);
+        const trainingPointer = readPractice('training'), checkPointer = readPractice('check');
+        setMode(Boolean(checkPointer && (!trainingPointer || checkPointer.updatedAt > trainingPointer.updatedAt)));
         $('release-name').textContent = me.release ? `${me.release.date} · ${me.release.commit}` : 'неизвестен';
         $('release').hidden = false;
         $('user-email').textContent = me.email;
@@ -612,6 +615,100 @@
 
     // Категории и тренировка
 
+    function practiceKey(kind) { return user ? 'pg16-practice:' + user.email + ':' + kind : null; }
+    function readPractice(kind) {
+        try {
+            const p = JSON.parse(localStorage.getItem(practiceKey(kind)) || 'null');
+            return p && Number.isInteger(p.id) && p.id > 0 && Number.isInteger(p.index) && p.index >= 0
+                && typeof p.name === 'string' && Number.isInteger(p.total) && p.total > p.index ? p : null;
+        } catch { return null; }
+    }
+    function savePractice(kind) {
+        if (!user) return;
+        const training = kind === 'training';
+        const id = training ? trainingBatchId : checkBatch?.id;
+        const at = training ? index : checkIndex;
+        const total = training ? questions.length : checkBatch?.cards.length;
+        if (!id || at >= total) return;
+        const questionId = training ? questions[at].id : checkBatch.cards[at].question_id;
+        const key = id + ':' + questionId;
+        const pending = training ? unconfirmedAnswers.has(key) : unconfirmedChecks.has(key);
+        const draft = training ? collectAnswer($('options')) : (pending ? unconfirmedChecks.get(key) : null);
+        try {
+            localStorage.setItem(practiceKey(kind), JSON.stringify({ id, index: at, total, questionId,
+                name: training ? $('category-name').textContent : checkBatch.category_name,
+                draft, pending, updatedAt: Date.now() }));
+        } catch { /* Без хранилища работа в текущей вкладке продолжается. */ }
+    }
+    function clearPracticePointer(kind, id) {
+        if (readPractice(kind)?.id !== id) return;
+        try { localStorage.removeItem(practiceKey(kind)); } catch {}
+    }
+    function updatePracticeOffer() {
+        const pointer = readPractice(checkMode ? 'check' : 'training');
+        $('practice-resume').hidden = !pointer;
+        if (pointer) $('practice-resume-text').textContent = pointer.name + ' · '
+            + (checkMode ? 'Подходит или нет · карточка ' : 'Тренировка · вопрос ')
+            + (pointer.index + 1) + ' из ' + pointer.total;
+    }
+    function focusQuestion(id) {
+        const node = $(id); node.tabIndex = -1;
+        node.focus({ preventScroll: true }); node.scrollIntoView({ block: 'start' });
+    }
+    function loadingPractice(on) {
+        practiceLoading = on;
+        $('practice-loading').hidden = !on;
+        $('practice-resume-button').disabled = on;
+    }
+    async function resumePractice() {
+        if (practiceLoading) return;
+        const kind = checkMode ? 'check' : 'training';
+        const pointer = readPractice(kind);
+        if (!pointer) return;
+        const revision = viewRevision;
+        loadingPractice(true); showError('');
+        try {
+            const batch = await api('/api/' + (kind === 'training' ? 'training' : 'option-checks') + '/batches/' + pointer.id + '/resume');
+            if (revision !== viewRevision) return;
+            if (kind === 'training') {
+                trainingBatchId = batch.id; questions = batch.questions;
+                showSection = batch.mode === 'mistakes';
+                $('category-name').textContent = batch.category_name;
+                finishText = showSection ? FINISH_MISTAKES : FINISH_PORTION;
+                finishHint = showSection ? '' : NEXT_PORTION_HINT;
+                finishPractice = batch.category_id ? practiceTopicOf({ name: batch.category_name }) : null;
+                progressLabel = showSection ? 'Вопрос' : 'Порция: вопрос';
+                for (const q of questions) {
+                    const key = batch.id + ':' + q.id;
+                    savedTraining.delete(key); unconfirmedAnswers.delete(key);
+                    if (q.answer) savedTraining.set(key, { ...q.result, selected_answer: q.answer.selected_answer });
+                }
+                index = Math.min(pointer.index, questions.length - 1);
+                portionScore = questions.filter(q => q.answer?.correct).length;
+                if (pointer.pending && questions[index].id === pointer.questionId && !questions[index].answer && typeof pointer.draft === 'string'
+                    && /^[A-Z]+$/.test(pointer.draft) && [...pointer.draft].every(k => Object.hasOwn(questions[index].options, k))) {
+                    unconfirmedAnswers.set(batch.id + ':' + pointer.questionId, pointer.draft);
+                }
+                showQuestion();
+            } else {
+                checkBatch = batch; $('check-category-name').textContent = batch.category_name;
+                for (const card of batch.cards) {
+                    const key = batch.id + ':' + card.question_id;
+                    savedChecks.delete(key); unconfirmedChecks.delete(key);
+                    if (card.answer) savedChecks.set(key, { ...card.result, fits: card.answer.fits });
+                }
+                checkIndex = Math.min(pointer.index, batch.cards.length - 1);
+                checkScore = batch.cards.filter(c => c.result?.right).length;
+                if (pointer.pending && batch.cards[checkIndex].question_id === pointer.questionId && !batch.cards[checkIndex].answer && typeof pointer.draft === 'boolean') {
+                    unconfirmedChecks.set(batch.id + ':' + pointer.questionId, pointer.draft);
+                }
+                showCheckCard();
+            }
+        } catch (err) {
+            if (revision === viewRevision) showError(err.message || 'Не удалось продолжить тренировку. Попробуйте ещё раз.');
+        } finally { loadingPractice(false); }
+    }
+
     async function refreshMistakes() {
         const button = $('open-mistakes');
         try {
@@ -626,6 +723,8 @@
 
     async function startMistakes() {
         showError('');
+        if (practiceLoading) return;
+        loadingPractice(true);
         const revision = viewRevision;
         try {
             const batch = await postJson('/api/training/batches', { mode: 'mistakes' });
@@ -636,7 +735,7 @@
             if (revision !== viewRevision) return;
             showError(err.message);
             return;
-        }
+        } finally { loadingPractice(false); }
         if (questions.length === 0) {
             showError('Список ошибок пуст');
             refreshMistakes();
@@ -659,6 +758,8 @@
         exam = null;
         show('categories', { route });
         const revision = viewRevision;
+        updatePracticeOffer();
+        $('categories-loading').hidden = false;
         const list = $('categories');
         list.textContent = '';
         refreshMistakes();
@@ -715,11 +816,14 @@
             if (revision !== viewRevision) return;
             showError(err.message);
         }
+        if (revision === viewRevision) $('categories-loading').hidden = true;
         checkSavedExam();
     }
 
     async function startCategory(category) {
         showError('');
+        if (practiceLoading) return;
+        loadingPractice(true);
         const revision = viewRevision;
         try {
             const batch = await postJson('/api/training/batches', { category_id: category.id, limit: PORTION_SIZE });
@@ -730,7 +834,7 @@
             if (revision !== viewRevision) return;
             showError(err.message);
             return;
-        }
+        } finally { loadingPractice(false); }
         $('category-name').textContent = category.name;
         showSection = false;
         finishText = FINISH_PORTION;
@@ -765,7 +869,9 @@
     }
 
     function showQuestion() {
+        portionScore = questions.filter(q => savedTraining.get(trainingBatchId + ':' + q.id)?.correct).length;
         if (index >= questions.length) {
+            clearPracticePointer('training', trainingBatchId);
             showFinish(finishText, portionScore, questions.length, finishHint, finishPractice);
             return;
         }
@@ -795,6 +901,38 @@
                 input.disabled = true;
             });
         }
+        const stored = savedTraining.get(answerKeyOf(question));
+        const pointer = readPractice('training');
+        const draft = stored?.selected_answer || (pointer?.id === trainingBatchId && pointer.questionId === question.id ? pointer.draft : null);
+        if (typeof draft === 'string') options.querySelectorAll('input').forEach(input => { input.checked = draft.includes(input.value); });
+        if (stored) renderTrainingAnswer(question, stored);
+        savePractice('training');
+        focusQuestion('question-text');
+    }
+
+    function renderTrainingAnswer(question, result) {
+        const rightKeys = result.correct_answer.split('');
+        document.querySelectorAll('#options .option').forEach((label) => {
+            const input = label.querySelector('input');
+            input.disabled = true;
+            label.classList.add('locked');
+            if (rightKeys.includes(input.value)) {
+                label.classList.add('correct');
+            } else if (input.checked) {
+                label.classList.add('wrong');
+            }
+            if (result.option_notes) appendNote(label.querySelector('.text'), result.option_notes[input.value]);
+        });
+        const status = $('result-status');
+        status.textContent = result.correct ? 'Верно' : 'Неверно';
+        status.className = 'status ' + (result.correct ? 'ok' : 'bad');
+        const rightLetters = answerKeys(question, result.correct_answer)
+            .map((key) => displayLetter(question, key)).join(', ');
+        $('result-correct').textContent = (rightKeys.length > 1 ? 'Правильные ответы: ' : 'Правильный ответ: ') + rightLetters;
+        $('result-explanation').textContent = result.explanation || '';
+        $('result').hidden = false;
+        ai.offer($('ai-question'), { mode: 'training', batch_id: trainingBatchId, question_id: question.id });
+        $('submit').disabled = true;
     }
 
     async function submitAnswer(event) {
@@ -811,42 +949,31 @@
         $('submit').disabled = true;
         document.querySelectorAll('#options input').forEach((input) => { input.disabled = true; });
         const answerKey = answerKeyOf(question);
+        const actor = user;
+        const wasUnconfirmed = unconfirmedAnswers.has(answerKey);
+        unconfirmedAnswers.set(answerKey, answer);
+        savePractice('training');
         try {
             const result = await api('/api/answers', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ question_id: question.id, answer, training_batch_id: trainingBatchId }),
             });
+            if (user !== actor) return;
             unconfirmedAnswers.delete(answerKey);
+            savedTraining.set(answerKey, { ...result, selected_answer: answer });
             // Даже повторное открытие того же вопроса — уже другой экран.
             if (revision !== viewRevision) return;
-            if (result.correct) portionScore += 1;
-            const rightKeys = result.correct_answer.split('');
-            document.querySelectorAll('#options .option').forEach((label) => {
-                const input = label.querySelector('input');
-                input.disabled = true;
-                label.classList.add('locked');
-                if (rightKeys.includes(input.value)) {
-                    label.classList.add('correct');
-                } else if (input.checked) {
-                    label.classList.add('wrong');
-                }
-                if (result.option_notes) appendNote(label.querySelector('.text'), result.option_notes[input.value]);
-            });
-            const status = $('result-status');
-            status.textContent = result.correct ? 'Верно' : 'Неверно';
-            status.className = 'status ' + (result.correct ? 'ok' : 'bad');
-            const rightLetters = answerKeys(question, result.correct_answer)
-                .map((key) => displayLetter(question, key)).join(', ');
-            $('result-correct').textContent = (rightKeys.length > 1 ? 'Правильные ответы: ' : 'Правильный ответ: ') + rightLetters;
-            $('result-explanation').textContent = result.explanation || '';
-            $('result').hidden = false;
-            ai.offer($('ai-question'), { mode: 'training', batch_id: trainingBatchId, question_id: question.id });
-            $('submit').disabled = true;
+            portionScore = questions.filter(q => savedTraining.get(trainingBatchId + ':' + q.id)?.correct).length;
+            renderTrainingAnswer(question, result);
+            savePractice('training');
         } catch (err) {
             // Состояние ответа фиксируется независимо от текущего экрана; проверка экрана — только для DOM.
             const unconfirmed = NO_RESPONSE.includes(err.kind);
+            if (user !== actor) return;
+            if (!unconfirmed && !wasUnconfirmed) unconfirmedAnswers.delete(answerKey);
             if (unconfirmed) unconfirmedAnswers.set(answerKey, answer);
+            if (trainingBatchId + ':' + questions[index]?.id === answerKey) savePractice('training');
             if (revision !== viewRevision) return;
             $('submit').disabled = false;
             // Ответ не подтверждён: сервер мог его уже сохранить. Выбор не меняется, и «Ответить»
@@ -1593,10 +1720,13 @@
         $('mode-check').classList.toggle('active', check);
         $('mode-train').setAttribute('aria-pressed', String(!check));
         $('mode-check').setAttribute('aria-pressed', String(check));
+        updatePracticeOffer();
     }
 
     async function startOptionCheck(category) {
         showError('');
+        if (practiceLoading) return;
+        loadingPractice(true);
         const revision = viewRevision;
         try {
             const batch = await postJson('/api/option-checks/batches', { category_id: category.id });
@@ -1606,7 +1736,7 @@
             if (revision !== viewRevision) return;
             showError(err.message);
             return;
-        }
+        } finally { loadingPractice(false); }
         if (!checkBatch.cards.length) {
             showError('В этом разделе нет вопросов');
             return;
@@ -1618,7 +1748,9 @@
     }
 
     function showCheckCard() {
+        checkScore = checkBatch.cards.filter(c => savedChecks.get(checkBatch.id + ':' + c.question_id)?.right).length;
         if (checkIndex >= checkBatch.cards.length) {
+            clearPracticePointer('check', checkBatch.id);
             showFinish(FINISH_PORTION, checkScore, checkBatch.cards.length, '');
             return;
         }
@@ -1635,6 +1767,23 @@
         const pending = unconfirmedChecks.get(checkBatch.id + ':' + card.question_id);
         $('check-yes').disabled = pending === false;
         $('check-no').disabled = pending === true;
+        const stored = savedChecks.get(checkBatch.id + ':' + card.question_id);
+        if (stored) renderCheckAnswer(card, stored);
+        savePractice('check');
+        focusQuestion('check-question-text');
+    }
+
+    function renderCheckAnswer(card, result) {
+        $('check-yes').disabled = $('check-no').disabled = true;
+        const status = $('check-status');
+        status.textContent = result.right ? 'Верно' : 'Неверно';
+        status.className = 'status ' + (result.right ? 'ok' : 'bad');
+        $('check-fits').textContent = result.option_fits ? 'Этот вариант подходит как ответ.' : 'Этот вариант не подходит как ответ.';
+        $('check-note').textContent = result.option_note || '';
+        $('check-explanation').textContent = result.explanation || '';
+        $('check-option').className = 'check-option ' + (result.right ? 'right' : 'wrong');
+        $('check-result').hidden = false;
+        ai.offer($('ai-check'), { mode: 'option-check', batch_id: checkBatch.id, question_id: card.question_id });
     }
 
     async function submitOptionCheck(fits) {
@@ -1645,23 +1794,25 @@
         const key = checkBatch.id + ':' + card.question_id;
         $('check-yes').disabled = true;
         $('check-no').disabled = true;
+        const actor = user;
+        const wasUnconfirmed = unconfirmedChecks.has(key);
+        unconfirmedChecks.set(key, fits);
+        savePractice('check');
         try {
             const result = await postJson('/api/option-checks', { batch_id: checkBatch.id, question_id: card.question_id, fits });
+            if (user !== actor) return;
             unconfirmedChecks.delete(key);
+            savedChecks.set(key, { ...result, fits });
             if (revision !== viewRevision) return;
-            if (result.right) checkScore += 1;
-            const status = $('check-status');
-            status.textContent = result.right ? 'Верно' : 'Неверно';
-            status.className = 'status ' + (result.right ? 'ok' : 'bad');
-            $('check-fits').textContent = result.option_fits ? 'Этот вариант подходит как ответ.' : 'Этот вариант не подходит как ответ.';
-            $('check-note').textContent = result.option_note || '';
-            $('check-explanation').textContent = result.explanation || '';
-            $('check-option').className = 'check-option ' + (result.right ? 'right' : 'wrong');
-            $('check-result').hidden = false;
-            ai.offer($('ai-check'), { mode: 'option-check', batch_id: checkBatch.id, question_id: card.question_id });
+            checkScore = checkBatch.cards.filter(c => savedChecks.get(checkBatch.id + ':' + c.question_id)?.right).length;
+            renderCheckAnswer(card, result);
+            savePractice('check');
         } catch (err) {
             const unconfirmed = NO_RESPONSE.includes(err.kind);
+            if (user !== actor) return;
+            if (!unconfirmed && !wasUnconfirmed) unconfirmedChecks.delete(key);
             if (unconfirmed) unconfirmedChecks.set(key, fits);
+            if (checkBatch.id + ':' + checkBatch.cards[checkIndex]?.question_id === key) savePractice('check');
             if (revision !== viewRevision) return;
             const pending = unconfirmedChecks.get(key);
             $('check-yes').disabled = pending === false;
@@ -1680,6 +1831,8 @@
     });
     $('check-back').addEventListener('click', loadCategories);
 
+    $('practice-resume-button').addEventListener('click', resumePractice);
+    $('options').addEventListener('change', () => savePractice('training'));
     $('answer-form').addEventListener('submit', submitAnswer);
     $('next').addEventListener('click', () => {
         index += 1;

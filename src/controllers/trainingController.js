@@ -147,4 +147,24 @@ async function getTrainingBatch(req, res) {
     }
 }
 
-module.exports = { createTrainingBatch, answerTrainingQuestion, getTrainingBatches, getTrainingBatch };
+async function resumeTrainingBatch(req, res) {
+    const id = parseId(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Некорректный номер порции' });
+    try {
+        const row = await pool.query('SELECT id,category_id,category_name,mode,questions FROM training_batches WHERE id=$1 AND user_id=$2', [id, req.user.id]);
+        if (!row.rowCount) return res.status(404).json({ error: 'Порция не найдена' });
+        const batch = row.rows[0];
+        const answers = (await pool.query('SELECT question_id,selected_answer,correct FROM answer_log WHERE training_batch_id=$1 AND user_id=$2', [id, req.user.id])).rows;
+        const saved = new Map(answers.map(a => [a.question_id, a]));
+        res.json({ ...batch, questions: batch.questions.map(q => {
+            const answer = saved.get(q.id);
+            return { ...publicQuestion(q), answer: answer || null,
+                result: answer ? { correct: answer.correct, correct_answer: q.correct_answer, explanation: q.explanation, option_notes: q.option_notes } : null };
+        }) });
+    } catch (err) {
+        noteError(res, err);
+        res.status(500).json({ error: 'Не удалось восстановить тренировку. Попробуйте ещё раз.' });
+    }
+}
+
+module.exports = { createTrainingBatch, answerTrainingQuestion, getTrainingBatches, getTrainingBatch, resumeTrainingBatch };
