@@ -42,8 +42,14 @@
     let loginRequest = '';
     let privacyReturn = 'login';
     let viewRevision = 0;
+    const ai = typeof window.createAiAssistant === 'function' ? window.createAiAssistant({ api })
+        : { reset() {}, setUser() {}, offer() {} };
+    if (typeof window.createAiAssistant !== 'function') {
+        queueMicrotask(() => reportClientError({ kind: 'js', source: 'ai.js' }));
+    }
 
     function show(name) {
+        ai.reset();
         viewRevision += 1;
         VIEWS.forEach((key) => {
             $(key + '-view').hidden = key !== name;
@@ -174,6 +180,7 @@
 
     function showLogin() {
         user = null;
+        ai.setUser(null);
         stopTimer();
         exam = null;
         // Данные незавершённого входа не должны пережить выход или истечение сеанса.
@@ -325,6 +332,7 @@
 
     function startApp(me) {
         user = me;
+        ai.setUser(me);
         applyAccent(me.accent);
         applyTheme(me.theme);
         $('release-name').textContent = me.release ? `${me.release.date} · ${me.release.commit}` : 'неизвестен';
@@ -740,6 +748,7 @@
             $('result-correct').textContent = (rightKeys.length > 1 ? 'Правильные ответы: ' : 'Правильный ответ: ') + rightLetters;
             $('result-explanation').textContent = result.explanation || '';
             $('result').hidden = false;
+            ai.offer($('ai-question'), { mode: 'training', batch_id: trainingBatchId, question_id: question.id });
             $('submit').disabled = true;
         } catch (err) {
             // Состояние ответа фиксируется независимо от текущего экрана; проверка экрана — только для DOM.
@@ -1538,6 +1547,7 @@
             $('check-explanation').textContent = result.explanation || '';
             $('check-option').className = 'check-option ' + (result.right ? 'right' : 'wrong');
             $('check-result').hidden = false;
+            ai.offer($('ai-check'), { mode: 'option-check', batch_id: checkBatch.id, question_id: card.question_id });
         } catch (err) {
             const unconfirmed = NO_RESPONSE.includes(err.kind);
             if (unconfirmed) unconfirmedChecks.set(key, fits);

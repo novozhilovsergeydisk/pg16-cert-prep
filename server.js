@@ -56,6 +56,7 @@ app.use('/api', require('./src/routes/auth'));
 app.use('/api', require('./src/routes/clientErrors'));
 app.use('/api', require('./src/routes/stats'));
 app.use('/api', require('./src/routes/materials'));
+app.use('/api', require('./src/routes/ai').createAiRouter());
 app.use('/api', require('./src/routes/quiz'));
 
 // Необработанная ошибка маршрута или разбора тела запроса: фиксированный ответ в JSON,

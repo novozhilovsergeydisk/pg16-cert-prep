@@ -927,3 +927,12 @@ pre code {
     border-color: var(--bad);
     background: var(--bad-bg);
 }
+/* Личный помощник: длинные SQL-фрагменты не расширяют карточку на мобильном экране. */
+.ai-assistant { margin: 1rem 0; padding-top: 1rem; border-top: 1px solid var(--border); }
+.ai-message { margin: 1rem 0; }
+.ai-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.ai-form label { display: block; color: var(--muted); }
+.ai-form textarea { display: block; box-sizing: border-box; width: 100%; margin: .5rem 0;
+    padding: .7rem; font: inherit; color: var(--fg); background: var(--surface);
+    border: 1px solid var(--border); border-radius: var(--radius); resize: vertical; }
+.ai-sources a { display: block; margin: .4rem 0; overflow-wrap: anywhere; color: var(--accent); }

@@ -1,0 +1,21 @@
+# Install on appuse as /etc/pg16-ai/ssh_config, root:pgcert, mode 640.
+Host pg16-ai-gateway
+    HostName 193.233.202.148
+    User pg16-ai
+    Port 22
+    IdentityFile /etc/pg16-ai/ssh_client.key
+    IdentitiesOnly yes
+    IdentityAgent none
+    UserKnownHostsFile /etc/pg16-ai/known_hosts
+    GlobalKnownHostsFile /dev/null
+    StrictHostKeyChecking yes
+    HostKeyAlgorithms ssh-ed25519
+    UpdateHostKeys no
+    ForwardAgent no
+    ForwardX11 no
+    RequestTTY no
+    BatchMode yes
+    ConnectTimeout 8
+    ConnectionAttempts 1
+    ServerAliveInterval 5
+    ServerAliveCountMax 2
