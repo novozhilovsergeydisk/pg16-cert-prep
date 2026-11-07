@@ -155,6 +155,7 @@
                 conversation = pending = null;
                 busy = exhausted = false;
                 history.textContent = sources.textContent = status.textContent = input.value = '';
+                status.classList.remove('ai-loading');
                 start.textContent = scope === 'general' ? 'Новый диалог' : 'Объяснить подробнее';
                 input.setAttribute('aria-label', scope === 'general' ? 'Ваш вопрос' : 'Уточнение по этому вопросу');
                 input.placeholder = scope === 'general' ? 'Спросите что-нибудь…' : 'Уточните по этому вопросу…';
@@ -183,6 +184,7 @@
                 send.disabled = true;
                 input.disabled = true;
                 status.textContent = scope === 'general' ? 'Готовлю ответ…' : 'Готовлю пояснение…';
+                status.classList.add('ai-loading');
                 try {
                     if (!pending.job_id) {
                         const data = pending.first
@@ -242,6 +244,7 @@
                 } finally {
                     if (current()) {
                         busy = false;
+                        status.classList.remove('ai-loading');
                         start.disabled = Boolean(pending && !pending.first);
                         input.disabled = Boolean(pending);
                         send.disabled = exhausted || Boolean(pending && pending.first && scope !== 'general');

@@ -933,6 +933,14 @@ pre code {
 .ai-modes label { display: inline-flex; align-items: center; gap: .4rem; margin: .3rem .8rem .3rem 0; }
 .ai-message { margin: 1rem 0; }
 .ai-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.ai-loading::before { content: ''; display: inline-block; box-sizing: border-box;
+    width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px;
+    border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+    animation: ai-spin .8s linear infinite; }
+@keyframes ai-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+    .ai-loading::before { animation: none; }
+}
 .ai-composer { padding: 16px 14px 12px; border: 1px solid var(--border); border-radius: 22px;
     background: var(--surface); box-shadow: 0 3px 16px #00000006; }
 .ai-composer:focus-within { border-color: var(--accent); }
