@@ -1,0 +1,74 @@
+{
+  "completed_at_utc": "2026-11-07T11:28:39.641696+00:00",
+  "task": 203,
+  "status": "local_only",
+  "commit_and_deploy": false,
+  "migrations": false,
+  "conventional_commit": "fix(security): запрет сжатого JSON и обязательный TLS почты",
+  "dependencies": {
+    "express": "5.2.1",
+    "body-parser": "2.4.0",
+    "qs": "6.17.1",
+    "nodemailer": "10.3.1",
+    "nodemon": "3.1.14",
+    "minimatch": "11.0.5"
+  },
+  "npm_audit_full": {
+    "info": 0,
+    "low": 0,
+    "moderate": 0,
+    "high": 0,
+    "critical": 0,
+    "total": 0
+  },
+  "npm_audit_production": {
+    "info": 0,
+    "low": 0,
+    "moderate": 0,
+    "high": 0,
+    "critical": 0,
+    "total": 0
+  },
+  "npm_ci_ignore_scripts_passed": true,
+  "tests": {
+    "common-tests": {
+      "passed": 225,
+      "failed": 0
+    },
+    "browser-tests": {
+      "passed": 83,
+      "failed": 0
+    },
+    "ai-tests": {
+      "passed": 21,
+      "failed": 0
+    },
+    "python": {
+      "passed": 9,
+      "failed": 0
+    }
+  },
+  "new_security_scenarios": 14,
+  "smtp_preflight": {
+    "starttls_offered": true,
+    "certificate_and_hostname_verified": true,
+    "tls_version": "TLSv1.3",
+    "auth_attempted": false,
+    "mail_sent": false
+  },
+  "prior_user_test_selection_preserved": true,
+  "test_generated_tracked_screenshots_restored": 33,
+  "production_configuration_changed": false,
+  "deployment_requires": [
+    "explicit_user_permission",
+    "backup",
+    "git_release",
+    "npm_ci",
+    "application_service_restart"
+  ],
+  "limitations": [
+    "Local test runtime Node 22; production Node 20 upgrade is a separate stage.",
+    "Real SMTP authentication and email delivery were not tested.",
+    "Other security audit findings remain unresolved on production."
+  ]
+}

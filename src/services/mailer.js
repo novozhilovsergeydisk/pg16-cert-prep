@@ -14,6 +14,8 @@ function createTransport(sockets) {
         host: process.env.SMTP_HOST,
         port,
         secure: port === 465,
+        requireTLS: port !== 465,
+        tls: { rejectUnauthorized: true, minVersion: 'TLSv1.2' },
         connectionTimeout: 5000,
         greetingTimeout: 5000,
         socketTimeout: 10000,

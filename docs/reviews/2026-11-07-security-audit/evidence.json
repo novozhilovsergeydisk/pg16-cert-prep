@@ -1,0 +1,528 @@
+{
+  "completed_at_utc": "2026-11-07T11:08:13.753849+00:00",
+  "production_commit": "c257310",
+  "scope": "Application, dependencies, browser, PostgreSQL, two hosts, AI gateway, backups and release controls; production read-only probes, local adversarial checks.",
+  "findings": {
+    "P1": 4,
+    "P2": 5,
+    "P3": 3
+  },
+  "production": {
+    "appuse_node": "v20.20.2",
+    "postgres": "16.14",
+    "express": "5.2.1",
+    "body_parser": "2.3.0",
+    "nodemailer": "10.1.0",
+    "qs": "6.16.0",
+    "smtp_port": 587,
+    "runtime_role_owns_database": true,
+    "runtime_role_superuser": false,
+    "statement_timeout": "5s",
+    "idle_transaction_timeout": "0",
+    "root_password_login_allowed_both_hosts": true,
+    "fail2ban_active_both_hosts": true,
+    "app_memory_limit": "infinity",
+    "app_cpu_quota": "infinity",
+    "app_service_user": "pgcert",
+    "app_service_active": true,
+    "app_service_pid_unchanged": true,
+    "app_restarts": 0,
+    "server_worktrees_clean": true,
+    "gateway_authorized_key_restrict_and_forced_command": true,
+    "gateway_key_source_restricted": true,
+    "vpn_unchanged": true,
+    "os_upgradable_packages": 124,
+    "os_security_repository_candidates": 66,
+    "apt_index_refreshed": false
+  },
+  "backups": {
+    "server_count": 14,
+    "server_newest_age_hours_at_measurement": 10.47,
+    "server_directory_mode": "0700",
+    "server_files_private": true,
+    "latest_gzip_integrity": true,
+    "local_offsite_count": 12,
+    "local_offsite_directory_mode": "0700",
+    "local_pull_agent_present": true,
+    "full_restore_tested": false
+  },
+  "tests": {
+    "common_final": {
+      "passed": 211,
+      "failed": 0
+    },
+    "browser_final": {
+      "passed": 83,
+      "failed": 0
+    },
+    "ai_node_browser": {
+      "passed": 21,
+      "failed": 0
+    },
+    "ai_python": {
+      "passed": 9,
+      "failed": 0
+    },
+    "initial_concurrent_runs": {
+      "common_passed": 206,
+      "common_failed": 5,
+      "browser_passed": 81,
+      "browser_failed": 2
+    },
+    "affected_sets_serial_recheck": {
+      "passed": 87,
+      "failed": 0
+    },
+    "test_generated_screenshots_restored": 33
+  },
+  "github": {
+    "private": true,
+    "main_protected": false,
+    "branch_protection_details_status": 403,
+    "tracked_actions_workflows_found": false
+  },
+  "changes": "Only audit documents/evidence added; no app fixes, commit, push, deploy, migration or production configuration change. Previous local loading-indicator changes preserved.",
+  "api_checks": {
+    "checks": [
+      {
+        "name": "unauthenticated /api/me",
+        "passed": true
+      },
+      {
+        "name": "unauthenticated /api/categories",
+        "passed": true
+      },
+      {
+        "name": "unauthenticated /api/questions?category_id=1",
+        "passed": true
+      },
+      {
+        "name": "unauthenticated /api/exam",
+        "passed": true
+      },
+      {
+        "name": "unauthenticated /api/stats",
+        "passed": true
+      },
+      {
+        "name": "unauthenticated /api/admin/users",
+        "passed": true
+      },
+      {
+        "name": "unauthenticated /api/admin/hard-questions",
+        "passed": true
+      },
+      {
+        "name": "unauthenticated /api/training/batches",
+        "passed": true
+      },
+      {
+        "name": "unauthenticated /api/exam/history",
+        "passed": true
+      },
+      {
+        "name": "unauthenticated /api/materials/interview",
+        "passed": true
+      },
+      {
+        "name": "unauthenticated /api/ai/status",
+        "passed": true
+      },
+      {
+        "name": "ordinary user cannot read admin users",
+        "passed": true
+      },
+      {
+        "name": "ordinary user cannot read admin detail",
+        "passed": true
+      },
+      {
+        "name": "foreign Origin rejected",
+        "passed": true
+      },
+      {
+        "name": "SQL-like category rejected",
+        "passed": true
+      },
+      {
+        "name": "material prototype lookup rejected",
+        "passed": true
+      },
+      {
+        "name": "JSON size bounded",
+        "passed": true
+      },
+      {
+        "name": "training response hides answers",
+        "passed": true
+      },
+      {
+        "name": "foreign training ",
+        "passed": true
+      },
+      {
+        "name": "foreign training /resume",
+        "passed": true
+      },
+      {
+        "name": "foreign training write",
+        "passed": true
+      },
+      {
+        "name": "option response hides answers",
+        "passed": true
+      },
+      {
+        "name": "foreign option resume",
+        "passed": true
+      },
+      {
+        "name": "foreign option write",
+        "passed": true
+      },
+      {
+        "name": "foreign exam review",
+        "passed": true
+      },
+      {
+        "name": "extra fields cannot change role",
+        "passed": true
+      },
+      {
+        "name": "magic link is atomic single use",
+        "passed": true
+      },
+      {
+        "name": "production cookie flags",
+        "passed": true
+      },
+      {
+        "name": "logout invalidates session",
+        "passed": true
+      }
+    ],
+    "observations": {
+      "verify35RequestsWithout429": true,
+      "meCacheControl": null
+    }
+  },
+  "smtp": {
+    "serverAdvertisesSTARTTLS": false,
+    "sendingSucceeded": true,
+    "cleartextAuth": true,
+    "cleartextMessage": true,
+    "realCredentialsUsed": false
+  },
+  "body_parser_probe": [
+    {
+      "encoding": "br",
+      "responseStatus": 400,
+      "processCrashed": false,
+      "errorObserved": false
+    },
+    {
+      "encoding": "deflate",
+      "responseStatus": 400,
+      "processCrashed": false,
+      "errorObserved": false
+    },
+    {
+      "encoding": "gzip",
+      "responseStatus": 400,
+      "processCrashed": false,
+      "errorObserved": true
+    }
+  ],
+  "production_http": {
+    "http": [
+      {
+        "path": "/",
+        "status": 200,
+        "headers": {
+          "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+          "x-frame-options": "DENY",
+          "x-content-type-options": "nosniff",
+          "strict-transport-security": "max-age=31536000",
+          "referrer-policy": "no-referrer",
+          "cache-control": "public, max-age=0",
+          "server": "nginx/1.22.1"
+        },
+        "response_bytes_sampled": 1024
+      },
+      {
+        "path": "/js/ai.js",
+        "status": 200,
+        "headers": {
+          "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+          "x-frame-options": "DENY",
+          "x-content-type-options": "nosniff",
+          "strict-transport-security": "max-age=31536000",
+          "referrer-policy": "no-referrer",
+          "cache-control": "public, max-age=0",
+          "server": "nginx/1.22.1"
+        },
+        "response_bytes_sampled": 1024
+      },
+      {
+        "path": "/.env",
+        "status": 404,
+        "headers": {
+          "content-security-policy": "default-src 'none'",
+          "x-frame-options": "DENY",
+          "x-content-type-options": "nosniff",
+          "strict-transport-security": "max-age=31536000",
+          "referrer-policy": "no-referrer",
+          "server": "nginx/1.22.1"
+        },
+        "response_bytes_sampled": 143
+      },
+      {
+        "path": "/.git/config",
+        "status": 404,
+        "headers": {
+          "content-security-policy": "default-src 'none'",
+          "x-frame-options": "DENY",
+          "x-content-type-options": "nosniff",
+          "strict-transport-security": "max-age=31536000",
+          "referrer-policy": "no-referrer",
+          "server": "nginx/1.22.1"
+        },
+        "response_bytes_sampled": 150
+      },
+      {
+        "path": "/token.txt.save",
+        "status": 404,
+        "headers": {
+          "content-security-policy": "default-src 'none'",
+          "x-frame-options": "DENY",
+          "x-content-type-options": "nosniff",
+          "strict-transport-security": "max-age=31536000",
+          "referrer-policy": "no-referrer",
+          "server": "nginx/1.22.1"
+        },
+        "response_bytes_sampled": 153
+      },
+      {
+        "path": "/package.json",
+        "status": 404,
+        "headers": {
+          "content-security-policy": "default-src 'none'",
+          "x-frame-options": "DENY",
+          "x-content-type-options": "nosniff",
+          "strict-transport-security": "max-age=31536000",
+          "referrer-policy": "no-referrer",
+          "server": "nginx/1.22.1"
+        },
+        "response_bytes_sampled": 151
+      },
+      {
+        "path": "/gateway/ai_gateway.py",
+        "status": 404,
+        "headers": {
+          "content-security-policy": "default-src 'none'",
+          "x-frame-options": "DENY",
+          "x-content-type-options": "nosniff",
+          "strict-transport-security": "max-age=31536000",
+          "referrer-policy": "no-referrer",
+          "server": "nginx/1.22.1"
+        },
+        "response_bytes_sampled": 160
+      },
+      {
+        "path": "/api/me",
+        "status": 401,
+        "headers": {
+          "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+          "x-frame-options": "DENY",
+          "x-content-type-options": "nosniff",
+          "strict-transport-security": "max-age=31536000",
+          "referrer-policy": "no-referrer",
+          "server": "nginx/1.22.1"
+        },
+        "response_bytes_sampled": 39
+      },
+      {
+        "path": "/api/admin/users",
+        "status": 401,
+        "headers": {
+          "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+          "x-frame-options": "DENY",
+          "x-content-type-options": "nosniff",
+          "strict-transport-security": "max-age=31536000",
+          "referrer-policy": "no-referrer",
+          "server": "nginx/1.22.1"
+        },
+        "response_bytes_sampled": 39
+      },
+      {
+        "path": "/api/ai/status",
+        "status": 401,
+        "headers": {
+          "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+          "x-frame-options": "DENY",
+          "x-content-type-options": "nosniff",
+          "strict-transport-security": "max-age=31536000",
+          "referrer-policy": "no-referrer",
+          "server": "nginx/1.22.1"
+        },
+        "response_bytes_sampled": 39
+      },
+      {
+        "path": "/api/materials/interview",
+        "status": 401,
+        "headers": {
+          "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+          "x-frame-options": "DENY",
+          "x-content-type-options": "nosniff",
+          "strict-transport-security": "max-age=31536000",
+          "referrer-policy": "no-referrer",
+          "server": "nginx/1.22.1"
+        },
+        "response_bytes_sampled": 39
+      },
+      {
+        "path": "/api/test",
+        "status": 401,
+        "headers": {
+          "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+          "x-frame-options": "DENY",
+          "x-content-type-options": "nosniff",
+          "strict-transport-security": "max-age=31536000",
+          "referrer-policy": "no-referrer",
+          "server": "nginx/1.22.1"
+        },
+        "response_bytes_sampled": 39
+      },
+      {
+        "path": "/api/auth/verify",
+        "scenario": "foreign_origin",
+        "status": 403
+      }
+    ],
+    "tls": [
+      {
+        "version": "TLSv1",
+        "accepted": false,
+        "error_class": "SSLError"
+      },
+      {
+        "version": "TLSv1_1",
+        "accepted": false,
+        "error_class": "SSLError"
+      },
+      {
+        "version": "TLSv1_2",
+        "accepted": true,
+        "negotiated": "TLSv1.2"
+      },
+      {
+        "version": "TLSv1_3",
+        "accepted": true,
+        "negotiated": "TLSv1.3"
+      }
+    ],
+    "certificate": {
+      "verified": true,
+      "expires": "Jan  7 17:05:22 2027 GMT"
+    }
+  },
+  "working_tree_secret_scan": {
+    "working_tree_strong_pattern_matches": [],
+    "history_sensitive_filenames": [],
+    "token_save_present": true,
+    "token_save_ignored": false,
+    "files_scanned": 442,
+    "limitations": "Heuristic patterns, not a proof that all secrets are absent; .env contents excluded."
+  },
+  "history_secret_scan": {
+    "reachable_text_blobs_scanned": 829,
+    "matches": [],
+    "limitations": "Only strong patterns on reachable text blobs; .env and binary assets excluded; deleted unreachable history and arbitrary passwords not covered."
+  },
+  "npm_audit": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 4,
+      "high": 1,
+      "critical": 0,
+      "total": 5
+    },
+    "dependencies": {
+      "prod": 84,
+      "dev": 29,
+      "optional": 2,
+      "peer": 0,
+      "peerOptional": 0,
+      "total": 113
+    }
+  },
+  "npm_advisories": [
+    {
+      "package": "body-parser",
+      "severity": "high",
+      "direct": false,
+      "via": [
+        {
+          "title": "body-parser vulnerable to Denial of Service via trailing bytes after a compressed request body",
+          "url": "https://github.com/advisories/GHSA-27r3-jxmh-p828",
+          "range": ">=2.0.0 <2.4.0"
+        }
+      ]
+    },
+    {
+      "package": "minimatch",
+      "severity": "moderate",
+      "direct": false,
+      "via": [
+        {
+          "title": "minimatch has potential denial of service via globparts amplification",
+          "url": "https://github.com/advisories/GHSA-g3hv-75wg-m249",
+          "range": ">=7.0.0 <11.0.1"
+        }
+      ]
+    },
+    {
+      "package": "nodemailer",
+      "severity": "moderate",
+      "direct": true,
+      "via": [
+        {
+          "title": "Nodemailer: A nested comment ends early in addressparser, releasing the rest of the comment as a recipient",
+          "url": "https://github.com/advisories/GHSA-8c8m-p3m8-cjg8",
+          "range": ">=3.0.0 <10.1.4"
+        },
+        {
+          "title": "Nodemailer: A \";\" inside a quoted string or comment ends an address group early in addressparser, turning display text into a recipient",
+          "url": "https://github.com/advisories/GHSA-m943-m63m-w62w",
+          "range": ">=3.0.0 <10.1.4"
+        },
+        {
+          "title": "Nodemailer: A \">\" inside a quoted local part ends an angle-addr early in addressparser, delivering to a domain the header does not name",
+          "url": "https://github.com/advisories/GHSA-85x2-q946-cp5h",
+          "range": ">=3.0.0 <10.1.4"
+        }
+      ]
+    },
+    {
+      "package": "nodemon",
+      "severity": "moderate",
+      "direct": true,
+      "via": [
+        "minimatch"
+      ]
+    },
+    {
+      "package": "qs",
+      "severity": "moderate",
+      "direct": false,
+      "via": [
+        {
+          "title": "qs : qs.stringify with arrayFormat 'comma' throws an uncaught TypeError on array elements carrying a non-callable own toString (DoS)",
+          "url": "https://github.com/advisories/GHSA-6pq8-jhm2-2vcw",
+          "range": ">=6.7.0 <=6.16.0"
+        }
+      ]
+    }
+  ]
+}

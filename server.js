@@ -34,8 +34,9 @@ app.use(express.static('public'));
 app.use('/api', requestLog);
 // Отчёты страницы о сбоях: лимит частоты до разбора тела, чтобы его расходовали и отклонённые запросы;
 // тело — не больше 2 КБ. Остальные запросы — с обычным ограничением express.json.
-app.use('/api/client-errors', clientErrorLimit, express.json({ limit: '2kb' }));
-app.use(express.json());
+app.use('/api/client-errors', clientErrorLimit, express.json({ limit: '2kb', inflate: false }));
+// Браузер отправляет обычный JSON: сжатые тела не распаковываем до проверки входа.
+app.use(express.json({ inflate: false }));
 app.use('/api', checkOrigin);
 
 // Проверка соединения с БД отдаёт версию сервера, поэтому в продакшене отключена.
