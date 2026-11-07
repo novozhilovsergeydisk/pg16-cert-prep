@@ -39,7 +39,10 @@ class GatewayTests(unittest.TestCase):
     def test_only_fixed_free_model_and_headers_are_sent(self):
         opener = FakeOpener([self.catalog, self.answer])
         output = gateway.infer(self.payload, self.key, opener)
-        self.assertEqual(output, {'ok': True, 'answer': 'Ответ', 'cost': 0})
+        self.assertEqual({k: output[k] for k in ('ok', 'answer', 'cost')}, {'ok': True, 'answer': 'Ответ', 'cost': 0})
+        self.assertTrue(output['metrics']['provider_call_started'])
+        self.assertEqual(output['metrics']['model'], gateway.MODEL)
+        self.assertNotIn('prompt_tokens', output['metrics'])
         self.assertEqual(len(opener.requests), 2)
         catalog_request, catalog_timeout = opener.requests[0]
         self.assertFalse(catalog_request.has_header('Authorization'))
@@ -61,6 +64,43 @@ class GatewayTests(unittest.TestCase):
             with self.assertRaises(gateway.GatewayError):
                 gateway.infer(self.payload, self.key, opener)
             self.assertEqual(len(opener.requests), 1)
+
+    def test_usage_and_wire_body_sizes_are_allowlisted_and_optional(self):
+        self.answer['id'] = 'gen-test'
+        self.answer['usage'].update(prompt_tokens=40, completion_tokens=8, total_tokens=48)
+        opener = FakeOpener([self.catalog, self.answer])
+        output = gateway.infer(self.payload, self.key, opener)
+        metrics = output['metrics']
+        self.assertEqual(metrics['prompt_tokens'], 40)
+        self.assertEqual(metrics['completion_tokens'], 8)
+        self.assertEqual(metrics['total_tokens'], 48)
+        self.assertEqual(metrics['provider_request_id'], 'gen-test')
+        self.assertEqual(metrics['provider_request_bytes'], len(opener.requests[1][0].data))
+        self.assertEqual(metrics['provider_response_bytes'], len(json.dumps(self.answer).encode()))
+        self.assertGreaterEqual(metrics['gateway_ms'], metrics['provider_ms'])
+        self.assertEqual(len(metrics['prompt_version']), 64)
+        self.assertFalse(self.key in json.dumps(output))
+        self.assertFalse('Internal reasoning' in json.dumps(output))
+        self.answer['id'] = self.key
+        self.answer['usage'].update(prompt_tokens=True, completion_tokens=-1, total_tokens='48')
+        output = gateway.infer(self.payload, self.key, FakeOpener([self.catalog, self.answer]))
+        for field in ('prompt_tokens', 'completion_tokens', 'total_tokens', 'provider_request_id'):
+            self.assertNotIn(field, output['metrics'])
+
+    def test_failure_telemetry_distinguishes_catalog_refusal_and_started_generation(self):
+        metrics = {}
+        with self.assertRaises(gateway.GatewayError):
+            gateway.infer(self.payload, self.key, FakeOpener([{'data': []}]), metrics)
+        self.assertFalse(metrics['provider_call_started'])
+        self.assertNotIn('provider_ms', metrics)
+        self.assertGreaterEqual(metrics['gateway_ms'], 0)
+        metrics = {}
+        error = urllib.error.HTTPError(gateway.API_BASE, 429, 'Private diagnostic', {}, None)
+        with self.assertRaises(gateway.GatewayError):
+            gateway.infer(self.payload, self.key, FakeOpener([self.catalog, error]), metrics)
+        self.assertTrue(metrics['provider_call_started'])
+        self.assertGreaterEqual(metrics['provider_ms'], 0)
+        self.assertNotIn('cost', metrics)
 
     def test_general_prompt_has_no_card_or_postgres_restriction(self):
         self.payload['context'] = {'scope': 'general'}

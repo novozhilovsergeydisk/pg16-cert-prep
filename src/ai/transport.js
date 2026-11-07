@@ -1,4 +1,5 @@
 const { spawn } = require('node:child_process');
+const { metrics } = require('./history');
 
 const MAX_OUTPUT_BYTES = 32000;
 const DEADLINE_MS = 55000;
@@ -32,12 +33,14 @@ function runGateway(payload, { configPath = process.env.AI_SSH_CONFIG || '/etc/p
         }
         let complete = false;
         let bytes = 0;
+        let telemetry = {};
         const output = [];
         const finish = (err, result) => {
             if (complete) return;
             complete = true;
             clearTimeout(timer);
             if (err) {
+                err.metrics = { ...telemetry, gateway_response_bytes: bytes };
                 child.kill('SIGKILL');
                 reject(err);
             } else resolve(result);
@@ -56,10 +59,11 @@ function runGateway(payload, { configPath = process.env.AI_SSH_CONFIG || '/etc/p
             if (complete) return;
             try {
                 const result = JSON.parse(Buffer.concat(output).toString('utf8'));
+                telemetry = metrics(result.metrics);
                 if (!result.ok) return finish(failure(ERROR_CODES.has(result.code) ? result.code : 'AI_UNAVAILABLE'));
                 if (code !== 0 || typeof result.answer !== 'string' || !result.answer.trim()
                     || result.answer.length > 12000 || result.cost !== 0) return finish(failure('AI_INVALID'));
-                finish(null, { answer: result.answer.trim() });
+                finish(null, { answer: result.answer.trim(), metrics: { ...telemetry, gateway_response_bytes: bytes } });
             } catch (_) {
                 finish(failure('AI_UNAVAILABLE'));
             }

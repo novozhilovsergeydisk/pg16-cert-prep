@@ -2,12 +2,15 @@
 """One bounded JSON request over SSH stdin; one JSON response on stdout. No shell or SQL tools."""
 import decimal
 import fcntl
+import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import signal
 import stat
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -92,15 +95,20 @@ def validate(payload):
     return context, messages
 
 
-def request(opener, path, key=None, payload=None, timeout=8, max_bytes=8000000):
+def request(opener, path, key=None, payload=None, timeout=8, max_bytes=8000000, telemetry=None):
     headers = {'Content-Type': 'application/json', 'User-Agent': 'pg16-ai-gateway'}
     if key:
         headers['Authorization'] = 'Bearer ' + key
     data = None if payload is None else json.dumps(payload, ensure_ascii=False).encode('utf-8')
     req = urllib.request.Request(API_BASE + path, headers=headers, data=data)
+    started = time.monotonic()
+    if telemetry is not None:
+        telemetry.update(provider_call_started=True, provider_request_bytes=len(data or b''))
     try:
         with opener.open(req, timeout=timeout) as response:
             raw = response.read(max_bytes + 1)
+        if telemetry is not None:
+            telemetry['provider_response_bytes'] = len(raw)
         if len(raw) > max_bytes:
             raise GatewayError('AI_INVALID')
         return json.loads(raw)
@@ -110,6 +118,9 @@ def request(opener, path, key=None, payload=None, timeout=8, max_bytes=8000000):
         code = codes.get(error.code, 'AI_UNAVAILABLE')
         error.close()
         raise GatewayError(code) from None
+    finally:
+        if telemetry is not None:
+            telemetry['provider_ms'] = (time.monotonic() - started) * 1000
 
 
 def free_model(catalog):
@@ -126,11 +137,13 @@ def free_model(catalog):
         raise GatewayError('AI_PRICING') from None
 
 
-def infer(payload, key, opener):
+def _infer(payload, key, opener, telemetry):
     context, messages = validate(payload)
     free_model(request(opener, 'models'))
     system = (GENERAL_SYSTEM if context.get('scope') == 'general' else
               SYSTEM + '\nУчебный контекст:\n' + json.dumps(context, ensure_ascii=False))
+    base_system = GENERAL_SYSTEM if context.get('scope') == 'general' else SYSTEM
+    telemetry['prompt_version'] = hashlib.sha256(base_system.encode('utf-8')).hexdigest()
     body = {
         'model': MODEL,
         'messages': [{'role': 'system', 'content': system}] + messages,
@@ -139,7 +152,7 @@ def infer(payload, key, opener):
         'stream': False,
         'provider': {'allow_fallbacks': False, 'max_price': {'prompt': 0, 'completion': 0}},
     }
-    result = request(opener, 'chat/completions', key, body, timeout=35, max_bytes=128000)
+    result = request(opener, 'chat/completions', key, body, timeout=35, max_bytes=128000, telemetry=telemetry)
     choices = result.get('choices', [])
     if not choices or result.get('model') != MODEL:
         raise GatewayError('AI_INVALID')
@@ -154,12 +167,34 @@ def infer(payload, key, opener):
         raise GatewayError('AI_PRICING')
     if key in answer:
         raise GatewayError('AI_INVALID')
+    for field in ('prompt_tokens', 'completion_tokens', 'total_tokens'):
+        value = result.get('usage', {}).get(field)
+        if type(value) is int and 0 <= value <= 2147483647:
+            telemetry[field] = value
+    provider_id = result.get('id')
+    if isinstance(provider_id, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,160}', provider_id) and key not in provider_id:
+        telemetry['provider_request_id'] = provider_id
+    telemetry['cost'] = 0
     return {'ok': True, 'answer': answer.strip(), 'cost': 0}
+
+
+def infer(payload, key, opener, telemetry=None):
+    if telemetry is None:
+        telemetry = {}
+    started = time.monotonic()
+    telemetry.update(model=MODEL, provider_call_started=False)
+    try:
+        output = _infer(payload, key, opener, telemetry)
+        output['metrics'] = telemetry
+        return output
+    finally:
+        telemetry['gateway_ms'] = (time.monotonic() - started) * 1000
 
 
 def main():
     signal.signal(signal.SIGALRM, expired)
     signal.alarm(45)  # Включает чтение stdin, DNS, соединения и чтение HTTP-тела.
+    telemetry = {'provider_call_started': False}
     try:
         with LOCK_PATH.open('a') as lock:
             try:
@@ -174,7 +209,7 @@ def main():
             key = read_key()
             # Запросы идут непосредственно с magenta. Прокси из окружения и редиректы запрещены.
             opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
-            output = infer(payload, key, opener)
+            output = infer(payload, key, opener, telemetry)
     except GatewayError as error:
         output = {'ok': False, 'code': error.code}
     except (TimeoutError,):
@@ -185,6 +220,7 @@ def main():
         output = {'ok': False, 'code': 'AI_UNAVAILABLE'}
     finally:
         signal.alarm(0)
+    output['metrics'] = telemetry
     print(json.dumps(output, ensure_ascii=False))
     return 0 if output['ok'] else 1
 

@@ -8,6 +8,7 @@ process.env.DOTENV_CONFIG_QUIET = 'true';
 const pool = require('../src/config/db');
 const { createAiRouter } = require('../src/routes/ai');
 const { runGateway } = require('../src/ai/transport');
+const { createAiHistory, metrics } = require('../src/ai/history');
 
 let server, base, owner, other, categoryId, questionId, batchId, otherBatch, optionBatch;
 let clock = Date.now(), runner, calls, configuration;
@@ -245,6 +246,283 @@ function fakeProcess() {
     child.kill = () => { child.killed = true; };
     return child;
 }
+
+async function anotherRouter(options, action) {
+    const app = express();
+    app.use(express.json());
+    app.use('/api', createAiRouter({ pool, configuration: () => configuration, now: () => clock,
+        runGateway: (payload) => { calls.push(payload); return runner(payload); }, ...options }));
+    const local = app.listen(0, '127.0.0.1');
+    await new Promise((resolve) => local.once('listening', resolve));
+    const localBase = 'http://127.0.0.1:' + local.address().port;
+    const send = async (path, data, actor = owner, signal = AbortSignal.timeout(15000)) => {
+        const response = await fetch(localBase + path, { method: data ? 'POST' : 'GET',
+            headers: { ...(actor ? { Cookie: actor.cookie } : {}), 'Content-Type': 'application/json' },
+            body: data ? JSON.stringify(data) : undefined, signal });
+        return { status: response.status, body: await response.json() };
+    };
+    const wait = async (jobId) => {
+        for (let i = 0; i < 100; i++) {
+            const r = await send('/api/ai/jobs/' + jobId);
+            if (r.status !== 200 || r.body.state !== 'pending') return r;
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        throw new Error('History test job did not finish');
+    };
+    try { await action(send, wait); }
+    finally { await new Promise((resolve) => local.close(resolve)); }
+}
+
+test('AI ledger preserves texts, Unicode sizes, context, metrics and exact history references', async () => {
+    const message = 'Почему 🐘?';
+    runner = async () => ({ answer: 'Ответ 🐘', metrics: { model: 'test/model:free', prompt_tokens: 40,
+        completion_tokens: 8, total_tokens: 48, cost: 0, provider_call_started: true,
+        provider_ms: 2.5, gateway_ms: 3.5, provider_request_bytes: 100, provider_response_bytes: 200,
+        prompt_version: 'a'.repeat(64), provider_request_id: 'gen-test', unapproved: 'not stored' } });
+    const first = await request('/api/ai/conversations', { mode: 'general', scope: 'general', message, request_id: crypto.randomUUID() });
+    await result(first.body.job_id);
+    const r = (await query('SELECT * FROM ai_requests WHERE id=$1', [first.body.job_id])).rows[0];
+    assert.equal(r.state, 'done');
+    assert.equal(r.prompt_tokens, 40);
+    assert.equal(r.provider_call_started, true);
+    assert.equal(r.queue_ms, 0);
+    assert.ok(r.duration_ms >= r.transport_ms && r.preparation_ms >= 0);
+    assert.equal(r.request_bytes, Buffer.byteLength(JSON.stringify(calls[0])));
+    const texts = (await query('SELECT * FROM ai_messages WHERE request_id=$1 ORDER BY id', [r.id])).rows;
+    assert.equal(texts.length, 2);
+    assert.equal(texts[0].content, message);
+    assert.equal(texts[0].char_count, [...message].length);
+    assert.equal(texts[0].byte_count, Buffer.byteLength(message));
+    const conv = (await query('SELECT * FROM ai_conversations WHERE id=$1', [r.conversation_id])).rows[0];
+    assert.deepEqual(conv.context, { scope: 'general' });
+    const follow = await request('/api/ai/conversations/' + r.conversation_id + '/messages',
+        { message: 'Уточнение', request_id: crypto.randomUUID() });
+    await result(follow.body.job_id);
+    const second = (await query('SELECT * FROM ai_requests WHERE id=$1', [follow.body.job_id])).rows[0];
+    assert.deepEqual(second.history_message_ids, texts.map((m) => m.id));
+    assert.equal(second.history_bytes, Buffer.byteLength(JSON.stringify(calls[1].messages.slice(0, -1))));
+    assert.equal(JSON.stringify(second).includes('not stored'), false);
+});
+
+test('A fresh router reads committed jobs, preserves idempotency and continues stored dialogue', async () => {
+    const body = { mode: 'general', scope: 'general', message: 'Первый вопрос', request_id: crypto.randomUUID() };
+    const first = await request('/api/ai/conversations', body);
+    await result(first.body.job_id);
+    const before = calls.length;
+    await anotherRouter({}, async (send, wait) => {
+        assert.equal((await send('/api/ai/jobs/' + first.body.job_id)).body.state, 'done');
+        assert.equal((await send('/api/ai/conversations', body)).body.job_id, first.body.job_id);
+        assert.equal(calls.length, before);
+        const follow = await send('/api/ai/conversations/' + first.body.conversation_id + '/messages',
+            { request_id: crypto.randomUUID(), message: 'Второй вопрос' });
+        assert.equal((await wait(follow.body.job_id)).body.state, 'done');
+        assert.equal(calls.at(-1).messages.length, 3);
+    });
+    clock += 16 * 60000;
+    assert.equal((await request('/api/ai/conversations', body)).status, 409);
+    assert.equal(Number((await query('SELECT count(*) FROM ai_requests WHERE id=$1', [first.body.job_id])).rows[0].count), 1);
+});
+
+test('A second router does not interrupt a live generator holding the database lock', async () => {
+    let release;
+    runner = () => new Promise((resolve) => { release = resolve; });
+    const first = await request('/api/ai/conversations', startBody());
+    await anotherRouter({}, async (send) => {
+        assert.equal((await send('/api/ai/jobs/' + first.body.job_id)).body.state, 'pending');
+        assert.equal((await send('/api/ai/conversations', startBody())).status, 409);
+    });
+    release({ answer: 'Завершённый ответ' });
+    assert.equal((await result(first.body.job_id)).body.state, 'done');
+    assert.equal(calls.length, 1);
+});
+
+test('An abandoned durable job is marked interrupted and never automatically regenerated', async () => {
+    const store = createAiHistory(pool);
+    const requestId = crypto.randomUUID();
+    const fingerprint = crypto.createHash('sha256').update(JSON.stringify(['general', 'general', null, null, 'Вопрос'])).digest('hex');
+    const accepted = await store.accept({ userId: owner.id, requestId, fingerprint, scope: 'general', mode: 'general',
+        message: 'Вопрос', context: { scope: 'general' }, now: clock, elapsed: () => 0 });
+    await store.start(accepted.row, accepted.lease, clock, 0);
+    const backend = (await accepted.lease.client.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+    assert.equal((await query('SELECT pg_terminate_backend($1) AS terminated', [backend])).rows[0].terminated, true);
+    await accepted.lease.release();
+    await anotherRouter({}, async (send) => {
+        const r = await send('/api/ai/jobs/' + accepted.row.id);
+        assert.equal(r.body.state, 'failed');
+        assert.match(r.body.error, /прервался/);
+        const duplicate = await send('/api/ai/conversations', { mode: 'general', scope: 'general', message: 'Вопрос', request_id: requestId });
+        assert.equal(duplicate.body.job_id, accepted.row.id);
+        assert.equal(calls.length, 0);
+    });
+    const row = (await query('SELECT * FROM ai_requests WHERE id=$1', [accepted.row.id])).rows[0];
+    assert.equal(row.error_code, 'AI_INTERRUPTED');
+    assert.equal(row.duration_ms, null);
+});
+
+test('Database failure before admission prevents any gateway call', async () => {
+    const store = createAiHistory(pool);
+    store.accept = async () => { throw new Error('Private storage diagnostic'); };
+    await anotherRouter({ history: store }, async (send) => {
+        const r = await send('/api/ai/conversations', startBody());
+        assert.equal(r.status, 503);
+        assert.equal(JSON.stringify(r.body).includes('Private storage diagnostic'), false);
+    });
+    assert.equal(calls.length, 0);
+});
+
+test('A browser disconnect after durable admission does not lose the generated answer', async () => {
+    const store = createAiHistory(pool);
+    let notify, proceed;
+    const admitted = new Promise((resolve) => { notify = resolve; });
+    const gate = new Promise((resolve) => { proceed = resolve; });
+    const accept = store.accept;
+    store.accept = async (input) => {
+        const result = await accept(input);
+        notify(result.row.id);
+        await gate;
+        return result;
+    };
+    await anotherRouter({ history: store }, async (send, wait) => {
+        const controller = new AbortController();
+        const pending = send('/api/ai/conversations', startBody(), owner, controller.signal)
+            .then(() => false, (err) => err.name === 'AbortError');
+        const jobId = await admitted;
+        controller.abort();
+        proceed();
+        assert.equal(await pending, true);
+        assert.equal((await wait(jobId)).body.state, 'done');
+        assert.equal(calls.length, 1);
+        assert.equal(Number((await query("SELECT count(*) FROM ai_messages WHERE request_id=$1 AND role='assistant'", [jobId])).rows[0].count), 1);
+    });
+});
+
+test('Failed result commit rolls back the answer and polling retries storage without regenerating', async () => {
+    let fail = true;
+    const proxyPool = { query: (...args) => pool.query(...args), connect: async () => {
+        const client = await pool.connect();
+        return { query: async (...args) => {
+            if (fail && args[0].startsWith('UPDATE ai_requests SET state=$2')) throw new Error('Private finalize diagnostic');
+            return client.query(...args);
+        }, release: (...args) => client.release(...args), on: (...args) => client.on(...args),
+        removeListener: (...args) => client.removeListener(...args) };
+    } };
+    await anotherRouter({ history: createAiHistory(proxyPool) }, async (send, wait) => {
+        const first = await send('/api/ai/conversations', startBody());
+        let response;
+        for (let i = 0; i < 100; i++) {
+            response = await send('/api/ai/jobs/' + first.body.job_id);
+            if (response.status === 503) break;
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        assert.equal(response.status, 503);
+        assert.equal(Number((await query("SELECT count(*) FROM ai_messages WHERE request_id=$1 AND role='assistant'", [first.body.job_id])).rows[0].count), 0);
+        assert.equal((await send('/api/ai/conversations', startBody())).status, 503);
+        assert.equal(calls.length, 1);
+        fail = false;
+        assert.equal((await wait(first.body.job_id)).body.state, 'done');
+        assert.equal(calls.length, 1);
+        assert.equal(Number((await query('SELECT count(*) FROM ai_messages WHERE request_id=$1', [first.body.job_id])).rows[0].count), 2);
+    });
+});
+
+test('Persistent admission limits survive a fresh router and refusals are recorded separately', async () => {
+    for (let i = 0; i < 10; i++) {
+        const accepted = await request('/api/ai/conversations', startBody());
+        assert.equal(accepted.status, 202);
+        await result(accepted.body.job_id);
+    }
+    await anotherRouter({}, async (send) => {
+        const r = await send('/api/ai/conversations', startBody());
+        assert.equal(r.status, 429);
+    });
+    assert.equal(calls.length, 10);
+    const row = (await query("SELECT * FROM ai_requests WHERE user_id=$1 AND received_at=$2 AND state='rejected'", [owner.id, new Date(clock)])).rows[0];
+    assert.equal(row.error_code, 'AI_LOCAL_RATE_LIMIT');
+    assert.equal(row.started_at, null);
+});
+
+test('Concurrent duplicates admit at most one generation', async () => {
+    const body = startBody();
+    const results = await Promise.all([request('/api/ai/conversations', body), request('/api/ai/conversations', body)]);
+    const first = results.find((r) => r.status === 202);
+    assert.ok(first);
+    await result(first.body.job_id);
+    assert.equal(calls.length, 1);
+    assert.equal((await request('/api/ai/conversations', body)).body.job_id, first.body.job_id);
+});
+
+test('Failed turns remain in the ledger but are not replayed as successful dialogue', async () => {
+    runner = async () => { const err = new Error('Private provider diagnostic'); err.code = 'AI_TIMEOUT';
+        err.metrics = { provider_call_started: true, provider_ms: 25 }; throw err; };
+    const first = await request('/api/ai/conversations', startBody());
+    await result(first.body.job_id);
+    runner = async () => ({ answer: 'Уточнённый ответ' });
+    const next = await request('/api/ai/conversations/' + first.body.conversation_id + '/messages',
+        { message: 'Повторный вопрос', request_id: crypto.randomUUID() });
+    await result(next.body.job_id);
+    assert.equal(calls.at(-1).messages.length, 1);
+    const row = (await query('SELECT * FROM ai_requests WHERE id=$1', [first.body.job_id])).rows[0];
+    assert.equal(row.error_code, 'AI_TIMEOUT');
+    assert.equal(row.provider_ms, 25);
+    assert.equal(row.prompt_tokens, null);
+    assert.equal(Number((await query('SELECT count(*) FROM ai_messages WHERE request_id=$1', [row.id])).rows[0].count), 1);
+});
+
+test('Deleting an account cascades to conversations, requests and complete message texts', async () => {
+    const actor = await user('user');
+    let jobId, conversationId;
+    try {
+        await anotherRouter({ configuration: () => ({ enabled: true, ownerId: actor.id }) }, async (send) => {
+            const r = await send('/api/ai/conversations', { mode: 'general', scope: 'general', message: 'Текст для удаления', request_id: crypto.randomUUID() }, actor);
+            jobId = r.body.job_id; conversationId = r.body.conversation_id;
+            for (let i = 0; i < 100; i++) {
+                if ((await send('/api/ai/jobs/' + jobId, null, actor)).body.state === 'done') break;
+                await new Promise((resolve) => setTimeout(resolve, 10));
+            }
+        });
+    } finally { await query('DELETE FROM users WHERE id=$1', [actor.id]); }
+    for (const [table, column, value] of [['ai_requests', 'id', jobId], ['ai_conversations', 'id', conversationId], ['ai_messages', 'request_id', jobId]]) {
+        assert.equal(Number((await query('SELECT count(*) FROM ' + table + ' WHERE ' + column + '=$1', [value])).rows[0].count), 0);
+    }
+});
+
+test('Gateway metadata is allowlisted; unavailable values stay absent instead of becoming zero', () => {
+    const m = metrics({ prompt_tokens: -1, completion_tokens: '8', total_tokens: 5, cost: 1,
+        provider_ms: Infinity, gateway_ms: NaN, provider_request_id: 'with spaces', headers: 'private', answer: 'private' });
+    assert.deepEqual(m, { total_tokens: 5 });
+});
+
+test('Usage reports count admissions, refusals, Unicode volumes and latency without exporting dialogue', async () => {
+    const actor = await user('user');
+    try {
+        for (const state of ['done', 'rejected']) {
+            const requestId = crypto.randomUUID();
+            await query(`INSERT INTO ai_requests(id,user_id,client_request_id,fingerprint,scope,mode,state,
+                admission_status,error_code,received_at,started_at,finished_at,expires_at,duration_ms,transport_ms,model,
+                provider_call_started,prompt_tokens)
+                VALUES($1,$2,$3,$4,'general','general',$5,$6,$7,now()-interval '2 seconds',$8,
+                now()-interval '1 second',now()+interval '15 minutes',$9,$10,'test/report:free',$11,$12)`,
+            [requestId, actor.id, crypto.randomUUID(), 'b'.repeat(64), state, state === 'done' ? 202 : 409,
+                state === 'done' ? null : 'AI_BUSY', state === 'done' ? new Date(Date.now() - 1900) : null,
+                state === 'done' ? 100 : 1, state === 'done' ? 80 : null, state === 'done', state === 'done' ? 20 : null]);
+            await query("INSERT INTO ai_messages(request_id,role,content,created_at) VALUES($1,'user','Вход',now())", [requestId]);
+            if (state === 'done') await query("INSERT INTO ai_messages(request_id,role,content,created_at) VALUES($1,'assistant','Выход',now())", [requestId]);
+        }
+        const report = await query(require('node:fs').readFileSync(require('node:path').join(__dirname, '../scripts/ai-usage-report.sql'), 'utf8'));
+        assert.equal(report.length, 6);
+        const byUser = report[1].rows.find((r) => r.user_id === actor.id);
+        assert.equal(Number(byUser.admissions), 2);
+        assert.equal(Number(byUser.accepted), 1);
+        assert.equal(Number(byUser.rejected), 1);
+        assert.equal(Number(byUser.input_chars), 8);
+        assert.equal(Number(byUser.output_bytes), Buffer.byteLength('Выход'));
+        const hour = report[0].rows.find((r) => r.model === 'test/report:free');
+        assert.equal(hour.success_p95_ms, 100);
+        assert.equal(Number(hour.provider_calls_confirmed_started), 1);
+        assert.equal(Number(hour.known_prompt_tokens), 20);
+        assert.equal(JSON.stringify(report.map((r) => r.rows)).includes('Вход'), false);
+    } finally { await query('DELETE FROM users WHERE id=$1', [actor.id]); }
+});
 test('AI transport invokes only fixed SSH, sends JSON over stdin, and ignores diagnostic stderr', async () => {
     const child = fakeProcess();
     let invocation;
@@ -269,5 +547,28 @@ test('AI transport terminates on timeout or excessive output without another con
         await assert.rejects(response, (err) => err.code === (excessive ? 'AI_INVALID' : 'AI_TIMEOUT'));
         assert.equal(child.killed, true);
         assert.equal(count, 1);
+    }
+});
+
+test('SSH passes only approved metrics on both success and provider failure', async () => {
+    for (const ok of [true, false]) {
+        const child = fakeProcess();
+        const response = runGateway({ context: {}, messages: [] }, { configPath: '/test/ssh_config', spawnProcess: () => child });
+        const body = { ok, answer: 'Ответ', cost: 0, code: 'AI_RATE_LIMIT', metrics: {
+            prompt_tokens: 25, provider_call_started: true, provider_ms: 10,
+            headers: 'Private headers', provider_request_id: 'invalid spaces', completion_tokens: -1 } };
+        child.stdout.write(JSON.stringify(body));
+        child.emit('close', ok ? 0 : 1);
+        if (ok) {
+            const r = await response;
+            assert.equal(r.metrics.prompt_tokens, 25);
+            assert.equal(r.metrics.headers, undefined);
+            assert.equal(r.metrics.provider_request_id, undefined);
+            assert.equal(r.metrics.completion_tokens, undefined);
+            assert.equal(r.metrics.gateway_response_bytes, Buffer.byteLength(JSON.stringify(body)));
+        } else {
+            await assert.rejects(response, (err) => err.code === 'AI_RATE_LIMIT'
+                && err.metrics.provider_call_started && err.metrics.provider_ms === 10 && !('headers' in err.metrics));
+        }
     }
 });
