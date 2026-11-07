@@ -4,11 +4,17 @@
         let accountRevision = 0;
         let availability = Promise.resolve(false);
         const containers = new Set();
+        const resizeObservers = new Map();
         const post = (url, body) => api(url, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
         });
         function reset({ preserveGeneral = false } = {}) {
             revision += 1;
+            resizeObservers.forEach((observer, node) => {
+                if (preserveGeneral && node === generalContainer) return;
+                observer.disconnect();
+                resizeObservers.delete(node);
+            });
             containers.forEach((node) => {
                 if (preserveGeneral && node === generalContainer) return;
                 node.textContent = ''; node.hidden = true;
@@ -60,6 +66,8 @@
         async function offer(container, context) {
             const standalone = context.mode === 'general';
             if (standalone && generalMounted && generalContainer === container) return;
+            resizeObservers.get(container)?.disconnect();
+            resizeObservers.delete(container);
             const account = accountRevision;
             const version = revision;
             containers.add(container);
@@ -94,17 +102,43 @@
             history.setAttribute('aria-label', 'Диалог с ИИ');
             const sources = element('div', 'ai-sources');
             const form = element('form', 'ai-form');
-            const label = element('label');
-            const labelText = element('span', '', 'Уточнение по этому вопросу');
-            label.appendChild(labelText);
+            const composer = element('div', 'ai-composer');
             const input = element('textarea');
             input.maxLength = 1000;
-            input.rows = 3;
+            input.rows = 2;
             input.required = true;
-            label.appendChild(input);
-            const send = element('button', 'btn-secondary', 'Спросить');
+            input.setAttribute('aria-label', 'Уточнение по этому вопросу');
+            input.placeholder = 'Уточните по этому вопросу…';
+            const send = element('button', 'ai-send');
             send.type = 'submit';
-            form.append(label, send);
+            send.setAttribute('aria-label', 'Спросить');
+            send.title = 'Отправить запрос';
+            const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            arrow.setAttribute('viewBox', '0 0 24 24');
+            arrow.setAttribute('aria-hidden', 'true');
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', 'M12 19V5m-6 6 6-6 6 6');
+            arrow.appendChild(path);
+            send.appendChild(arrow);
+            const hint = element('p', 'ai-input-hint', 'Enter — отправить · Shift+Enter — новая строка');
+            hint.id = group + '-hint';
+            input.setAttribute('aria-describedby', hint.id);
+            composer.append(input, send);
+            form.append(composer, hint);
+            function resizeInput() {
+                if (!input.clientWidth) return;
+                input.style.height = 'auto';
+                input.style.height = Math.min(input.scrollHeight, 200) + 'px';
+            }
+            input.addEventListener('input', resizeInput);
+            let inputWidth = 0;
+            const observer = new ResizeObserver(() => {
+                if (input.clientWidth === inputWidth) return;
+                inputWidth = input.clientWidth;
+                resizeInput();
+            });
+            observer.observe(input);
+            resizeObservers.set(container, observer);
             form.hidden = true;
             container.append(modes, start, status, history, sources, form);
             if (standalone) {
@@ -122,10 +156,12 @@
                 busy = exhausted = false;
                 history.textContent = sources.textContent = status.textContent = input.value = '';
                 start.textContent = scope === 'general' ? 'Новый диалог' : 'Объяснить подробнее';
-                labelText.textContent = scope === 'general' ? 'Ваш вопрос' : 'Уточнение по этому вопросу';
+                input.setAttribute('aria-label', scope === 'general' ? 'Ваш вопрос' : 'Уточнение по этому вопросу');
+                input.placeholder = scope === 'general' ? 'Спросите что-нибудь…' : 'Уточните по этому вопросу…';
                 start.hidden = scope === 'general';
                 form.hidden = scope !== 'general';
                 start.disabled = input.disabled = send.disabled = false;
+                resizeInput();
             }
             function appendMessage(title, text) {
                 const message = element('div', 'ai-message');
@@ -192,6 +228,7 @@
                     exhausted = result.turns >= result.max_turns;
                     pending = null;
                     input.value = '';
+                    resizeInput();
                     form.hidden = exhausted;
                     start.hidden = false;
                     status.textContent = exhausted ? (scope === 'general'

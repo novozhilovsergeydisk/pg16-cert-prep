@@ -933,10 +933,23 @@ pre code {
 .ai-modes label { display: inline-flex; align-items: center; gap: .4rem; margin: .3rem .8rem .3rem 0; }
 .ai-message { margin: 1rem 0; }
 .ai-text { white-space: pre-wrap; overflow-wrap: anywhere; }
-.ai-form label { display: block; color: var(--muted); }
-.ai-form textarea { display: block; box-sizing: border-box; width: 100%; margin: .5rem 0;
-    padding: .7rem; font: inherit; color: var(--fg); background: var(--surface);
-    border: 1px solid var(--border); border-radius: var(--radius); resize: vertical; }
+.ai-composer { padding: 16px 14px 12px; border: 1px solid var(--border); border-radius: 22px;
+    background: var(--surface); box-shadow: 0 3px 16px #00000006; }
+.ai-composer:focus-within { border-color: var(--accent); }
+.ai-form textarea { display: block; box-sizing: border-box; width: 100%; min-height: 48px; max-height: 200px;
+    margin: 0; padding: 0 2px; font: inherit; font-size: 16px; line-height: 24px;
+    color: var(--fg); background: transparent; border: 0; border-radius: 0; resize: none; overflow-y: auto; }
+.ai-form textarea:focus { outline: none; }
+.ai-form textarea::placeholder { color: var(--muted); opacity: 1; }
+.ai-send { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px;
+    margin: 8px 0 0 auto; padding: 0; border: 0; border-radius: 50%; cursor: pointer;
+    background: var(--fg); color: var(--surface); }
+.ai-send svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round; }
+.ai-send:hover:not(:disabled) { opacity: .8; }
+.ai-send:disabled { opacity: .35; cursor: not-allowed; }
+.ai-send:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.ai-input-hint { margin: 10px 4px 0; color: var(--muted); font-size: .75rem; line-height: 1.5; text-align: center; }
 .ai-sources a { display: block; margin: .4rem 0; overflow-wrap: anywhere; color: var(--accent); }
 
 /* Основные разделы и компактные настройки аккаунта. */
