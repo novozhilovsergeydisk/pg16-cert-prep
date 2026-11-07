@@ -30,9 +30,11 @@ Node.js, Express 5, `pg`, PostgreSQL. Запросы пишутся на нат�
 
 ## Требования
 
-- Node.js 20 или новее (проверено на 20 и 22): этого требует nodemailer.
+- Поддерживаемая LTS-ветка Node.js; для серверной службы выбран Node.js 24.22.2 LTS.
 - PostgreSQL 14 или новее (проверено на 14.7).
 - Клиент `psql`.
+
+Адресная установка runtime, переключение systemd и откат описаны в [deploy/README.md](deploy/README.md).
 
 ## Установка
 
