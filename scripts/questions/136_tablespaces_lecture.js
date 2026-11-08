@@ -2,7 +2,8 @@
 // с лекцией курса DBA1 по теме 10: пустой tablespace в pg_tables, default_tablespace, temp_tablespaces, блокировка
 // при SET TABLESPACE, REINDEX (TABLESPACE), ALTER TABLE ALL IN TABLESPACE, размер ТП с каталогом базы, освобождение ТП
 // перед DROP TABLESPACE, ошибка ALTER DATABASE SET TABLESPACE. Ориентир — PostgreSQL 16. Факты проверены на временном кластере 05.11.2026.
-// Пересборка: node scripts/gen-questions.js scripts/questions/136_tablespaces_lecture.js
+// Миграция 136 уже выпущена; согласованная редакция вопроса 8 применяется миграцией 143.
+// Этот файл описывает итоговые тексты для проверок; миграцию 136 не пересобирать.
 const { S, M, C, questions } = require('../lib/question-builder')();
 const docs = 'https://www.postgresql.org/docs/16/';
 const source = (...pages) => { questions.at(-1).sources = pages; };
@@ -70,13 +71,13 @@ S('10', 'База appdb создана с TABLESPACE ts, в ней две пус
 ], 'Поэтому, чтобы освободить ТП и сохранить базу, её переносят командой ALTER DATABASE ... SET TABLESPACE. Размер всех ТП показывает и команда \\db+.');
 source(docs + 'functions-admin.html', docs + 'manage-ag-tablespaces.html');
 
-// 8. Как освободить ТП перед DROP TABLESPACE
-M('10', 'Нужно удалить табличное пространство ts. Оно — ТП по умолчанию базы appdb, которую надо сохранить; в нём лежат и таблицы базы cfg. Объектов appdb в pg_default нет. Какие действия подходят для подготовки?', [
-    ['Узнать базы с объектами в ts через pg_tablespace_databases', true, 'Функция возвращает OID баз, у которых есть объекты в этом ТП.'],
-    ['В cfg перенести или удалить все объекты из ts', true, 'Индексы переносят отдельно от таблиц, при удалении таблицы они удаляются вместе с ней. Перед DROP TABLESPACE в ts не должно остаться объектов других баз.'],
-    ['Сменить ТП базы: ALTER DATABASE appdb SET TABLESPACE pg_default', true, 'Команду выполняют из другой базы вне блока транзакции, когда к appdb нет подключений. Она переносит в pg_default всё из прежнего ТП базы, включая системный каталог.'],
-    ['Выполнить DROP TABLESPACE ts CASCADE из любой базы', false, 'У DROP TABLESPACE нет CASCADE: пространство удаляется, только когда в нём нет объектов ни одной базы.'],
-    ['В appdb хватит ALTER TABLE ALL IN TABLESPACE ts SET TABLESPACE pg_default', false, 'Это перенесёт таблицы appdb, но не её индексы и каталог, а таблицы cfg останутся.'],
+// 8. Как освободить ТП перед DROP TABLESPACE. Редакция текста — миграция 143; миграцию 136 не пересобирать.
+M('10', 'Нужно удалить табличное пространство ts, которое используется по умолчанию базой данных appdb. Базу appdb необходимо сохранить. В ts также находятся таблицы базы данных cfg. В пространстве pg_default нет объектов базы данных appdb. Какие действия подходят для подготовки к удалению ts?', [
+    ['Определить базы данных с объектами в ts с помощью pg_tablespace_databases', true, 'Функция возвращает OID баз, у которых есть объекты в этом ТП.'],
+    ['В базе данных cfg перенести или удалить все объекты из ts', true, 'Индексы переносят отдельно от таблиц, при удалении таблицы они удаляются вместе с ней. Перед DROP TABLESPACE в ts не должно остаться объектов других баз.'],
+    ['Изменить табличное пространство базы данных: ALTER DATABASE appdb SET TABLESPACE pg_default', true, 'Команду выполняют из другой базы вне блока транзакции, когда к appdb нет подключений. Она переносит в pg_default всё из прежнего ТП базы, включая системный каталог.'],
+    ['Выполнить DROP TABLESPACE ts CASCADE из любой базы данных', false, 'У DROP TABLESPACE нет CASCADE: пространство удаляется, только когда в нём нет объектов ни одной базы.'],
+    ['В базе данных appdb достаточно выполнить ALTER TABLE ALL IN TABLESPACE ts SET TABLESPACE pg_default', false, 'Это перенесёт таблицы appdb, но не её индексы и каталог, а таблицы cfg останутся.'],
 ], 'DROP TABLESPACE удаляет пространство, только когда в нём нет объектов ни одной базы. Порядок из демонстрации курса: pg_tablespace_databases, затем перенос или удаление объектов в каждой базе, для базы с ТП по умолчанию ts — ALTER DATABASE ... SET TABLESPACE из другой базы, потом DROP TABLESPACE.');
 source(docs + 'functions-info.html', docs + 'sql-droptablespace.html', docs + 'sql-alterdatabase.html');
 
