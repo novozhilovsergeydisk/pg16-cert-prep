@@ -61,6 +61,7 @@ const later = [
     ...require('../scripts/questions/128_topic08_lecture_notes').fixes,
     ...require('../scripts/questions/131_second_round_topic08').fixes,
     ...require('../scripts/questions/134_codex_topic11_set132').fixes,
+    ...require('../scripts/questions/144_backup_conditions').fixes,
 ];
 
 module.exports = function withLaterFixes(item) {
