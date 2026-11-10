@@ -3,3 +3,4 @@ node_modules/
 .DS_Store
 materials/
 deploy.sh
+token.txt.save

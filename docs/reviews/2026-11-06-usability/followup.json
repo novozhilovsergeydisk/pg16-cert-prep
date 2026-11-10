@@ -1,0 +1,40 @@
+{
+  "nonOwnerHome": {
+    "firstCategoryY": 688.1875,
+    "viewport": 844
+  },
+  "questionStart": {
+    "scrollY": 210,
+    "questionY": 211.765625,
+    "headingY": 131.6875,
+    "active": "BODY"
+  },
+  "answerNetworkError": {
+    "text": "Сервер не ответил, ответ не сохранён — нажмите «Ответить» ещё раз",
+    "top": 58.890625,
+    "bottom": 134.484375,
+    "scrollY": 210,
+    "viewport": 844,
+    "selected": 1
+  },
+  "loadingHome": {
+    "cards": 0,
+    "text": "Экзамен\nРабота над ошибками (0)\nИстория экзаменов\nИстория тренировок\nМоя статистика\nТренировка\nПодходит или нет\nКатегории"
+  },
+  "loginSent": {
+    "text": "Проверьте почту\n\nСсылка и код для входа отправлены на audit@example.test. Они действуют 15 минут.\n\nКод из письма\nВойти\nУказать другой email",
+    "buttons": [
+      "Войти",
+      "Указать другой email"
+    ],
+    "focus": "login-code"
+  },
+  "loginError": {
+    "error": "Код неверен или срок его действия истёк",
+    "buttons": [
+      "Войти",
+      "Указать другой email"
+    ]
+  },
+  "cleaned": true
+}

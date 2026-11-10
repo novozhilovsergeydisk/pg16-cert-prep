@@ -1,0 +1,401 @@
+{
+  "steps": [
+    {
+      "name": "home desktop dark",
+      "ok": true
+    },
+    {
+      "name": "home mobile",
+      "ok": true
+    },
+    {
+      "name": "chat crowds out categories and loses draft on navigation",
+      "ok": true
+    },
+    {
+      "name": "training navigation keyboard and reload",
+      "ok": true
+    },
+    {
+      "name": "training history and resume affordance",
+      "ok": true
+    },
+    {
+      "name": "option check and separate statistics",
+      "ok": true
+    },
+    {
+      "name": "exam setup and answering skipping",
+      "ok": true
+    },
+    {
+      "name": "exam history and practice",
+      "ok": true
+    },
+    {
+      "name": "browser back and focus after view change",
+      "ok": true
+    },
+    {
+      "name": "light and zoom and small targets",
+      "ok": true
+    },
+    {
+      "name": "login and retry flow",
+      "ok": true
+    }
+  ],
+  "screens": [
+    "01-home-desktop-dark",
+    "02-home-390",
+    "02-home-320",
+    "03-home-chat-mobile",
+    "04-training-mobile",
+    "05-training-result-mobile",
+    "06-training-history-mobile",
+    "07-training-review-mobile",
+    "08-option-check-mobile",
+    "09-stats-mobile",
+    "10-exam-setup-mobile",
+    "11-exam-mobile",
+    "12-exam-resume-mobile",
+    "13-exam-result-mobile",
+    "14-exam-history-mobile",
+    "15-practice-mobile",
+    "16-home-desktop-light",
+    "17-home-small-light",
+    "18-admin-mobile",
+    "19-login-mobile"
+  ],
+  "observations": {
+    "homeDesktop": {
+      "url": "http://127.0.0.1:54286/",
+      "title": "Тренажёр сертификации PostgreSQL 16",
+      "width": 1280,
+      "scrollWidth": 1280,
+      "scrollY": 0,
+      "active": "BODY",
+      "visibleView": [
+        "categories-view"
+      ],
+      "categoryTop": 714.484375,
+      "firstCategory": 714.484375,
+      "bodyHeight": 3027
+    },
+    "home390": {
+      "url": "http://127.0.0.1:54286/",
+      "title": "Тренажёр сертификации PostgreSQL 16",
+      "width": 390,
+      "scrollWidth": 390,
+      "scrollY": 0,
+      "active": "BODY",
+      "visibleView": [
+        "categories-view"
+      ],
+      "categoryTop": 1004.859375,
+      "firstCategory": 1004.859375,
+      "bodyHeight": 3822
+    },
+    "home320": {
+      "url": "http://127.0.0.1:54286/",
+      "title": "Тренажёр сертификации PostgreSQL 16",
+      "width": 320,
+      "scrollWidth": 320,
+      "scrollY": 0,
+      "active": "BODY",
+      "visibleView": [
+        "categories-view"
+      ],
+      "categoryTop": 1073.65625,
+      "firstCategory": 1073.65625,
+      "bodyHeight": 3965
+    },
+    "homeAfterChat": {
+      "url": "http://127.0.0.1:54286/",
+      "title": "Тренажёр сертификации PostgreSQL 16",
+      "width": 390,
+      "scrollWidth": 390,
+      "scrollY": 498,
+      "active": "BODY",
+      "visibleView": [
+        "categories-view"
+      ],
+      "categoryTop": 1771.171875,
+      "firstCategory": 1273.171875,
+      "bodyHeight": 4588
+    },
+    "chatAfterBack": {
+      "messages": 0,
+      "draft": ""
+    },
+    "trainingInitial": {
+      "url": "http://127.0.0.1:54286/",
+      "title": "Тренажёр сертификации PostgreSQL 16",
+      "width": 390,
+      "scrollWidth": 390,
+      "scrollY": 345,
+      "active": "BODY",
+      "visibleView": [
+        "question-view"
+      ],
+      "categoryTop": 345,
+      "firstCategory": 0,
+      "bodyHeight": 1189
+    },
+    "trainingResult": "Неверно\n\nПравильные ответы: A, C\n\nСнимок создан после завершения всех этих транзакций. Видимость решают статусы двух транзакций: создавшей версию (xmin) и удалившей её (xmax); UPDATE для старой версии работает так же, как DELETE. Статусы сервер берёт из pg_xact (clog). Версии отменённых транзакций могут оставаться на странице до очистки.\n\nТема диалога\nПо текущему вопросу\nЛюбая тема\nОбъяснить подробнее\n\nДалее",
+    "answerLiveRegion": {
+      "role": null,
+      "live": null
+    },
+    "trainingNext": {
+      "url": "http://127.0.0.1:54286/",
+      "title": "Тренажёр сертификации PostgreSQL 16",
+      "width": 390,
+      "scrollWidth": 390,
+      "scrollY": 210,
+      "active": "next",
+      "visibleView": [
+        "question-view"
+      ],
+      "categoryTop": 210,
+      "firstCategory": 0,
+      "bodyHeight": 1054
+    },
+    "trainingAfterReload": {
+      "url": "http://127.0.0.1:54286/",
+      "title": "Тренажёр сертификации PostgreSQL 16",
+      "width": 390,
+      "scrollWidth": 390,
+      "scrollY": 0,
+      "active": "BODY",
+      "visibleView": [
+        "categories-view"
+      ],
+      "categoryTop": 1004.859375,
+      "firstCategory": 1004.859375,
+      "bodyHeight": 3822
+    },
+    "batchReview": {
+      "buttons": [
+        "К истории тренировок"
+      ],
+      "questionCount": 16
+    },
+    "statsText": "К списку категорий\nМоя статистика: практика по темам\nТема\tРешено\tВерных\tВ ошибках\n01. Установка и управление сервером\t0 из 38\t—\t0\n02. Утилита psql\t0 из 42\t—\t0\n03. Конфигурирование\t0 из 41\t—\t0\n04. Общее устройство PostgreSQL\t0 из 62\t—\t0\n05. Изоляция и многоверсионность\t1 из 43\t0%\t1\n06. Очистка\t0 из 40\t—\t0\n07. Буферный кеш и журнал\t0 из 36\t—\t0\n08. Базы данных и схемы\t0 из 57\t—\t0\n09. Системный каталог\t0 из 35\t—\t0\n10. Табличные пространства\t0 из 34\t—\t0\n11. Низкоуровневое хранение\t0 из 36\t—\t0\n12. Мониторинг\t0 из 42\t—\t0\n13. Разграничение доступа\t0 из 42\t—\t0\n14. Резервное копирование\t0 из 47\t—\t0\n15. Физическая репликация\t0 из 29\t—\t0\n16. Логическая репликация\t0 из 29\t—\t0\n17. Собеседование DBA\t0 из 39\t—\t0\n18. Память процесса\t0 из 53\t—\t0\n19. Системные вызовы и режимы процессора\t0 из 30\t—\t0\n20. Планировщик и EXPLAIN\t0 из 30\t—\t0",
+    "examSetup": {
+      "url": "http://127.0.0.1:54286/",
+      "title": "Тренажёр сертификации PostgreSQL 16",
+      "width": 390,
+      "scrollWidth": 390,
+      "scrollY": 0,
+      "active": "BODY",
+      "visibleView": [
+        "exam-setup-view"
+      ],
+      "categoryTop": 0,
+      "firstCategory": 0,
+      "bodyHeight": 2190,
+      "startY": 2031.34375,
+      "topics": 20
+    },
+    "exam": {
+      "url": "http://127.0.0.1:54286/",
+      "title": "Тренажёр сертификации PostgreSQL 16",
+      "width": 390,
+      "scrollWidth": 390,
+      "scrollY": 91,
+      "active": "exam-next",
+      "visibleView": [
+        "exam-view"
+      ],
+      "categoryTop": 91,
+      "firstCategory": 0,
+      "bodyHeight": 991,
+      "text": "Вопрос 3 из 30\n45:00\nТаблица создана командой CREATE TABLE t (i int, n numeric, s text, j jsonb). Какие стратегии хранения сервер назначит столбцам по умолчанию?\n\nПравильных вариантов может быть несколько: выберите один или более\n\nA\nСтолбцу i — стратегию plain\nB\nСтолбцу s — стратегию external\nC\nСтолбцу n — стратегию main\nD\nСтолбцу j — стратегию plain\nНазад\nДалее\nЗавершить экзамен"
+    },
+    "practice": {
+      "url": "http://127.0.0.1:54286/",
+      "title": "Тренажёр сертификации PostgreSQL 16",
+      "width": 390,
+      "scrollWidth": 390,
+      "scrollY": 0,
+      "active": "BODY",
+      "visibleView": [
+        "material-view"
+      ],
+      "categoryTop": 0,
+      "firstCategory": 0,
+      "bodyHeight": 9041,
+      "returnButtons": [
+        "К списку категорий"
+      ]
+    },
+    "navigation": {
+      "before": "http://127.0.0.1:54286/",
+      "after": "http://127.0.0.1:54286/",
+      "title": "Тренажёр сертификации PostgreSQL 16",
+      "focus": "BODY:",
+      "nextTab": "stats-back",
+      "browserBackUrl": "about:blank"
+    },
+    "small": [
+      {
+        "text": "Практикум",
+        "w": 79.546875,
+        "h": 23.5625
+      },
+      {
+        "text": "Практикум",
+        "w": 79.546875,
+        "h": 23.5625
+      },
+      {
+        "text": "Практикум",
+        "w": 79.546875,
+        "h": 23.5625
+      },
+      {
+        "text": "Материал для изучения",
+        "w": 172.59375,
+        "h": 23.5625
+      },
+      {
+        "text": "Практикум",
+        "w": 79.546875,
+        "h": 23.5625
+      },
+      {
+        "text": "Материал для изучения",
+        "w": 172.59375,
+        "h": 23.5625
+      },
+      {
+        "text": "Практикум",
+        "w": 79.546875,
+        "h": 23.5625
+      },
+      {
+        "text": "Практикум",
+        "w": 79.546875,
+        "h": 23.5625
+      },
+      {
+        "text": "Материал для изучения",
+        "w": 172.59375,
+        "h": 23.5625
+      },
+      {
+        "text": "Практикум",
+        "w": 79.546875,
+        "h": 23.5625
+      },
+      {
+        "text": "Практикум",
+        "w": 79.546875,
+        "h": 23.5625
+      },
+      {
+        "text": "Практикум",
+        "w": 79.546875,
+        "h": 23.5625
+      },
+      {
+        "text": "Практикум",
+        "w": 79.546875,
+        "h": 23.5625
+      },
+      {
+        "text": "Практикум",
+        "w": 79.546875,
+        "h": 23.5625
+      },
+      {
+        "text": "Практикум",
+        "w": 79.546875,
+        "h": 23.5625
+      },
+      {
+        "text": "Практикум",
+        "w": 79.546875,
+        "h": 23.5625
+      },
+      {
+        "text": "Практикум",
+        "w": 79.546875,
+        "h": 23.5625
+      },
+      {
+        "text": "Практикум",
+        "w": 79.546875,
+        "h": 23.5625
+      },
+      {
+        "text": "Практикум",
+        "w": 79.546875,
+        "h": 23.5625
+      },
+      {
+        "text": "Материал для изучения",
+        "w": 172.59375,
+        "h": 23.5625
+      },
+      {
+        "text": "Практикум",
+        "w": 79.546875,
+        "h": 23.5625
+      },
+      {
+        "text": "Материал для изучения",
+        "w": 172.59375,
+        "h": 23.5625
+      },
+      {
+        "text": "Практикум",
+        "w": 79.546875,
+        "h": 23.5625
+      },
+      {
+        "text": "Материал для изучения",
+        "w": 172.59375,
+        "h": 23.5625
+      },
+      {
+        "text": "Практикум",
+        "w": 79.546875,
+        "h": 23.5625
+      },
+      {
+        "text": "Материал для изучения",
+        "w": 172.59375,
+        "h": 23.5625
+      },
+      {
+        "text": "Практикум",
+        "w": 79.546875,
+        "h": 23.5625
+      },
+      {
+        "text": "Что нового",
+        "w": 76.6875,
+        "h": 22.328125
+      }
+    ],
+    "zoomEquivalent": {
+      "url": "http://127.0.0.1:54286/",
+      "title": "Тренажёр сертификации PostgreSQL 16",
+      "width": 320,
+      "scrollWidth": 320,
+      "scrollY": 0,
+      "active": "BODY",
+      "visibleView": [
+        "categories-view"
+      ],
+      "categoryTop": 1073.65625,
+      "firstCategory": 1073.65625,
+      "bodyHeight": 3965
+    },
+    "loginText": "Вход\nEmail\nПолучить ссылку\n\nПерсональные данные",
+    "jsErrors": []
+  },
+  "cleaned": true
+}
