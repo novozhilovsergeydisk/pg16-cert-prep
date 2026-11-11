@@ -1,6 +1,7 @@
 const { test, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
+const { spawnSync } = require('node:child_process');
 const express = require('express');
 const { EventEmitter } = require('node:events');
 const { PassThrough } = require('node:stream');
@@ -523,6 +524,53 @@ test('Usage reports count admissions, refusals, Unicode volumes and latency with
         assert.equal(JSON.stringify(report.map((r) => r.rows)).includes('Вход'), false);
     } finally { await query('DELETE FROM users WHERE id=$1', [actor.id]); }
 });
+test('Usage report JSON preserves UTC buckets across process and database time zones', async () => {
+    const actor = await user('user');
+    const model = 'test/report-' + crypto.randomUUID();
+    // Both sides of yesterday's UTC midnight remain inside the seven-day report window.
+    const midnight = new Date();
+    midnight.setUTCHours(0, 0, 0, 0);
+    midnight.setUTCDate(midnight.getUTCDate() - 1);
+    const received = [-1, 20000, 50000].map((offset) => new Date(midnight.getTime() + offset));
+    const bucket = (date, unit) => {
+        const value = new Date(date);
+        if (unit === 'hour') value.setUTCMinutes(0, 0, 0);
+        else value.setUTCSeconds(0, 0);
+        return value.toISOString();
+    };
+    try {
+        for (const at of received) {
+            await query(`INSERT INTO ai_requests(id,user_id,client_request_id,fingerprint,scope,mode,state,
+                admission_status,received_at,finished_at,expires_at,model)
+                VALUES($1,$2,$3,$4,'general','general','done',202,$5,$5,$5,$6)`,
+            [crypto.randomUUID(), actor.id, crypto.randomUUID(), 'c'.repeat(64), at, model]);
+        }
+        for (const tz of ['UTC', 'Europe/Moscow', 'America/New_York']) {
+            for (const dbZone of ['UTC', 'Europe/Moscow', 'Asia/Kathmandu']) {
+                const run = spawnSync(process.execPath, [require('node:path').join(__dirname, '../scripts/ai-usage-report.js')], {
+                    env: { ...process.env, TZ: tz, PGOPTIONS: (process.env.PGOPTIONS || '') + ' -c timezone=' + dbZone },
+                    encoding: 'utf8', timeout: 10000,
+                });
+                const label = 'Node ' + tz + ', PostgreSQL ' + dbZone;
+                assert.equal(run.status, 0, label + ': report process failed');
+                let report;
+                try { report = JSON.parse(run.stdout); }
+                catch (_) { throw new Error(label + ': invalid report JSON'); }
+                assert.deepEqual(Object.keys(report), ['hourly', 'users', 'errors', 'peak_minutes', 'concurrency', 'storage']);
+                const hours = report.hourly.filter((row) => row.model === model);
+                assert.deepEqual(hours.map((row) => [row.hour_utc, Number(row.admissions)]),
+                    [[bucket(received[1], 'hour'), 2], [bucket(received[0], 'hour'), 1]], label);
+                for (const [at, count] of [[received[0], 1], [received[1], 2]]) {
+                    const minute = report.peak_minutes.find((row) => row.minute_utc === bucket(at, 'minute'));
+                    assert.ok(minute && Number(minute.accepted) >= count, label + ': missing UTC minute');
+                }
+                const byUser = report.users.find((row) => row.user_id === actor.id);
+                assert.equal(Number(byUser.admissions), 3, label);
+            }
+        }
+    } finally { await query('DELETE FROM users WHERE id=$1', [actor.id]); }
+});
+
 test('AI transport invokes only fixed SSH, sends JSON over stdin, and ignores diagnostic stderr', async () => {
     const child = fakeProcess();
     let invocation;

@@ -1,6 +1,7 @@
 -- Только агрегаты, без текстов, email и содержимого контекста.
 -- Окно отчётов: последние 7 суток. SQL выполняется под существующим доступом к БД.
-SELECT date_trunc('hour',received_at AT TIME ZONE 'UTC') AS hour_utc,
+-- Явная зона группировки и результат timestamptz сохраняют UTC при JSON-сериализации.
+SELECT date_trunc('hour',received_at,'UTC') AS hour_utc,
     scope,mode,model,count(*) AS admissions,
     count(*) FILTER (WHERE state<>'rejected') AS accepted,
     count(*) FILTER (WHERE state='done') AS done,
@@ -55,7 +56,7 @@ SELECT error_code,count(*) AS count,
 FROM ai_requests WHERE received_at>=now()-interval '7 days' AND received_at<=now() AND error_code IS NOT NULL
 GROUP BY error_code ORDER BY count DESC,error_code;
 
-SELECT date_trunc('minute',received_at AT TIME ZONE 'UTC') AS minute_utc,
+SELECT date_trunc('minute',received_at,'UTC') AS minute_utc,
     count(*) FILTER (WHERE state<>'rejected') AS accepted,
     count(*) FILTER (WHERE state='rejected') AS rejected
 FROM ai_requests WHERE received_at>=now()-interval '7 days' AND received_at<=now()
