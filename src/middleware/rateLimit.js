@@ -27,7 +27,26 @@ const HOUR_MS = 3600 * 1000;
 const byIp = (req) => req.ip;
 const byUser = (req) => req.user.id;
 
+// Token bucket: устойчивые 10/с, ёмкость для короткого всплеска — 20.
+function apiLimit({ now = Date.now } = {}) {
+    const buckets = new Map();
+    return (req, res, next) => {
+        const time = now();
+        const previous = buckets.get(req.ip);
+        if (!previous && buckets.size >= 10000) {
+            for (const [ip, bucket] of buckets) if (time - bucket.at >= 2000) buckets.delete(ip);
+            if (buckets.size >= 10000) return res.status(429).json({ error: TOO_OFTEN });
+        }
+        const tokens = previous ? Math.min(20, previous.tokens + Math.max(0, time - previous.at) / 100) : 20;
+        buckets.set(req.ip, { at: time, tokens: tokens >= 1 ? tokens - 1 : tokens });
+        if (tokens < 1) return res.status(429).json({ error: TOO_OFTEN });
+        next();
+    };
+}
+
 module.exports = {
+    apiLimit,
+    linkVerifyLimit: rateLimit({ limit: 10, windowMs: 60000, key: byIp }),
     TOO_OFTEN,
     // Запрос письма со ссылкой и кодом: с одного IP.
     linkRequestLimit: rateLimit({ limit: 20, windowMs: HOUR_MS, key: byIp }),

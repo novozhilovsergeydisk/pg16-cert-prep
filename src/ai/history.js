@@ -63,6 +63,16 @@ function createAiHistory(pool) {
 
     async function insert(client, input, state, status, code, conv, payload) {
         const jobId = randomUUID();
+        if (state === 'rejected') {
+            const counter = (await client.query(`INSERT INTO ai_rejection_daily(user_id,day_utc,total)
+                VALUES($1,($2::timestamptz AT TIME ZONE 'UTC')::date,1)
+                ON CONFLICT(user_id,day_utc) DO UPDATE SET total=ai_rejection_daily.total+1
+                RETURNING total`, [input.userId, date(input.now)])).rows[0];
+            if (Number(counter.total) > 100) {
+                return { row: { id: jobId, fingerprint: input.fingerprint, state, admission_status: status,
+                    error_code: code }, repeated: false };
+            }
+        }
         const history = conv?.messages || [];
         const row = (await client.query(`INSERT INTO ai_requests
             (id,user_id,client_request_id,fingerprint,conversation_id,scope,mode,state,admission_status,error_code,
@@ -75,8 +85,10 @@ function createAiHistory(pool) {
             payload ? bytes(payload.messages.slice(0, -1)) : null, payload ? bytes(payload) : null,
             history.map((m) => m.id), state === 'pending' ? 0 : null])).rows[0];
         if (!row) return { row: await previous(input.userId, input.requestId, client), repeated: true };
-        await client.query(`INSERT INTO ai_messages(request_id,role,content,created_at) VALUES($1,'user',$2,$3)`,
-            [row.id, input.message, date(input.now)]);
+        if (state !== 'rejected') {
+            await client.query(`INSERT INTO ai_messages(request_id,role,content,created_at) VALUES($1,'user',$2,$3)`,
+                [row.id, input.message, date(input.now)]);
+        }
         return { row, repeated: false };
     }
 

@@ -68,6 +68,9 @@ async function createTrainingBatch(req, res) {
         );
         res.status(201).json({ ...batch.rows[0], questions: questions.map(publicQuestion) });
     } catch (err) {
+        if (err.code === 'P0001' && err.constraint === 'snapshot_storage_quota') {
+            return res.status(429).json({ error: 'Достигнут лимит сохранённых тренировок. Ранее сохранённые тренировки доступны в истории.' });
+        }
         noteError(res, err);
         res.status(500).json({ error: 'Не удалось сохранить порцию вопросов' });
     }

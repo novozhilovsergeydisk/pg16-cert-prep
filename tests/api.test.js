@@ -1,4 +1,4 @@
-const { test, before, after } = require('node:test');
+const { test, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 require('dotenv').config();
 // Письма в тестах не отправляются, а складываются в outbox.
@@ -15,6 +15,15 @@ let server;
 let base;
 let userA;
 let cookieA;
+
+// Сценарии API работают в штатном темпе; защитные лимиты проверяются отдельно.
+let testIp = 0;
+const pacedFetch = require('./paced-fetch')();
+beforeEach(() => { testIp++; });
+async function fetch(url, options = {}) {
+    return pacedFetch(url, { ...options, headers: { ...options.headers,
+        'X-Forwarded-For': '192.0.2.' + testIp } });
+}
 
 test('Основы объектов: новые вопросы доступны в пуле, пятый вариант и ключи проверяются полностью', async () => {
     // Итоговые тексты: поздние правки (081, 083 и др.) могли переименовать вопросы набора.

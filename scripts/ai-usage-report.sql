@@ -80,5 +80,13 @@ SELECT relname AS table_name,pg_total_relation_size(relid) AS total_bytes,
     pg_relation_size(relid) AS heap_bytes,pg_indexes_size(relid) AS index_bytes,
     pg_size_pretty(pg_total_relation_size(relid)) AS total_pretty
 FROM pg_catalog.pg_statio_user_tables
-WHERE schemaname='public' AND relname IN ('ai_conversations','ai_requests','ai_messages')
+WHERE schemaname='public' AND relname IN ('ai_conversations','ai_requests','ai_messages','ai_rejection_daily')
 ORDER BY relname;
+
+-- Подробные разделы выше содержат максимум 100 новых отказов на пользователя/UTC-сутки.
+-- Здесь полное число, включая отказы после исчерпания подробного журнала.
+SELECT d.user_id,d.day_utc::text,d.total AS rejected_total,
+    (SELECT count(*) FROM ai_requests r WHERE r.user_id=d.user_id AND r.state='rejected'
+       AND (r.received_at AT TIME ZONE 'UTC')::date=d.day_utc) AS detailed_rows
+FROM ai_rejection_daily d WHERE d.day_utc >= (now() AT TIME ZONE 'UTC')::date-6
+ORDER BY d.day_utc DESC,d.user_id;

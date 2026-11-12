@@ -6,6 +6,7 @@ process.env.NODE_ENV = 'test';
 const crypto = require('crypto');
 const app = require('../server');
 const pool = require('../src/config/db');
+const fetch = require('./paced-fetch')();
 
 let server;
 let base;

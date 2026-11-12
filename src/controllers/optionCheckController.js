@@ -80,6 +80,9 @@ async function createOptionCheckBatch(req, res) {
         res.status(201).json({ ...batch.rows[0], category_name: category.rows[0].name,
             cards: cards.map((card, i) => publicCard(card, ordered[i])) });
     } catch (err) {
+        if (err.code === 'P0001' && err.constraint === 'snapshot_storage_quota') {
+            return res.status(429).json({ error: 'Достигнут лимит сохранённых тренировок. Ранее сохранённые тренировки доступны в истории.' });
+        }
         noteError(res, err);
         res.status(500).json({ error: 'Не удалось подготовить карточки' });
     }

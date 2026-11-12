@@ -2,10 +2,13 @@ const {test,before,after}=require('node:test');
 const assert=require('node:assert/strict');const crypto=require('node:crypto');const {chromium}=require('playwright');
 process.env.NODE_ENV='test';process.env.DOTENV_CONFIG_QUIET='true';
 const app=require('../server'),pool=require('../src/config/db');let server,base,browser;
+const fetch=require('./paced-fetch')();
+let fixtureIp=0;
 async function query(sql,args){try{return await pool.query(sql,args)}catch{throw new Error('Resume fixture database query failed')}}
 before(async()=>{server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));base='http://127.0.0.1:'+server.address().port;browser=await chromium.launch({executablePath:process.env.BROWSER_EXECUTABLE_PATH||undefined})});
 after(async()=>{await browser?.close();if(server)await new Promise(r=>server.close(r));await pool.end()});
 async function fixture(t){
+ const ip='198.51.100.'+(++fixtureIp);
  const name='UX продолжение '+crypto.randomUUID();
  const id=(await query("INSERT INTO users(email,role) VALUES($1,'user') RETURNING id",['resume-'+crypto.randomUUID()+'@example.test'])).rows[0].id;
  const other=(await query("INSERT INTO users(email,role) VALUES($1,'user') RETURNING id",['resume-'+crypto.randomUUID()+'@example.test'])).rows[0].id;
@@ -14,8 +17,10 @@ async function fixture(t){
  const token=crypto.randomBytes(32).toString('base64url'),otherToken=crypto.randomBytes(32).toString('base64url');
  for(const [uid,sid]of[[id,token],[other,otherToken]])await query("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 hour')",[crypto.createHash('sha256').update(sid).digest(),uid]);
  let context;t.after(async()=>{await context?.close();await query('DELETE FROM users WHERE id=ANY($1::int[])',[[id,other]]);await query('DELETE FROM questions WHERE id=ANY($1::int[])',[ids]);await query('DELETE FROM categories WHERE id=$1',[category])});
- async function request(path,body,auth=token){const r=await fetch(base+'/api'+path,{method:body?'POST':'GET',headers:{...(auth?{Cookie:'sid='+auth}:{}),'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(15000)});return{status:r.status,body:await r.json()}}
- async function page(){context=await browser.newContext({viewport:{width:390,height:844}});await context.addCookies([{name:'sid',value:token,url:base,httpOnly:true,sameSite:'Lax'}]);const p=await context.newPage();p.setDefaultTimeout(7000);const errors=[];p.on('pageerror',()=>errors.push(true));t.after(()=>assert.equal(errors.length,0));await p.goto(base);await p.locator('#categories .card').filter({hasText:name}).waitFor();return p}
+ async function request(path,body,auth=token){const r=await fetch(base+'/api'+path,{method:body?'POST':'GET',headers:{...(auth?{Cookie:'sid='+auth}:{}),'Content-Type':'application/json','X-Forwarded-For':ip},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(15000)});return{status:r.status,body:await r.json()}}
+ async function page(){context=await browser.newContext({viewport:{width:390,height:844},extraHTTPHeaders:{'X-Forwarded-For':ip}});
+ // Автоматизация выполняет reload быстрее человека: сохраняем штатный темп API.
+ let nextRequest=0;await context.route('**/api/**',async route=>{const slot=Math.max(Date.now(),nextRequest);nextRequest=slot+110;await new Promise(r=>setTimeout(r,Math.max(0,slot-Date.now())));try{await route.continue()}catch{if(!route.request().frame().page().isClosed())throw new Error('Resume fixture request failed')}}); await context.addCookies([{name:'sid',value:token,url:base,httpOnly:true,sameSite:'Lax'}]);const p=await context.newPage();p.setDefaultTimeout(7000);const errors=[];p.on('pageerror',()=>errors.push(true));t.after(()=>assert.equal(errors.length,0));await p.goto(base);await p.locator('#categories .card').filter({hasText:name}).waitFor();return p}
  return{id,otherToken,category,name,ids,request,page};
 }
 for(const mode of ['training','check'])test('Resume API preserves snapshot and hides unearned answers: '+mode,async t=>{

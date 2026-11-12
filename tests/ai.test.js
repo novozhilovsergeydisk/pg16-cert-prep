@@ -510,7 +510,7 @@ test('Usage reports count admissions, refusals, Unicode volumes and latency with
             if (state === 'done') await query("INSERT INTO ai_messages(request_id,role,content,created_at) VALUES($1,'assistant','Выход',now())", [requestId]);
         }
         const report = await query(require('node:fs').readFileSync(require('node:path').join(__dirname, '../scripts/ai-usage-report.sql'), 'utf8'));
-        assert.equal(report.length, 6);
+        assert.equal(report.length, 7);
         const byUser = report[1].rows.find((r) => r.user_id === actor.id);
         assert.equal(Number(byUser.admissions), 2);
         assert.equal(Number(byUser.accepted), 1);
@@ -556,7 +556,7 @@ test('Usage report JSON preserves UTC buckets across process and database time z
                 let report;
                 try { report = JSON.parse(run.stdout); }
                 catch (_) { throw new Error(label + ': invalid report JSON'); }
-                assert.deepEqual(Object.keys(report), ['hourly', 'users', 'errors', 'peak_minutes', 'concurrency', 'storage']);
+                assert.deepEqual(Object.keys(report), ['hourly', 'users', 'errors', 'peak_minutes', 'concurrency', 'storage', 'rejections_daily']);
                 const hours = report.hourly.filter((row) => row.model === model);
                 assert.deepEqual(hours.map((row) => [row.hour_utc, Number(row.admissions)]),
                     [[bucket(received[1], 'hour'), 2], [bucket(received[0], 'hour'), 1]], label);

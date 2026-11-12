@@ -7,7 +7,7 @@ const host = process.env.HOST || '127.0.0.1';
 const pool = require('./src/config/db');
 const { checkOrigin } = require('./src/middleware/auth');
 const { requestLog, noteError, logError } = require('./src/middleware/requestLog');
-const { clientErrorLimit } = require('./src/middleware/rateLimit');
+const { clientErrorLimit, apiLimit } = require('./src/middleware/rateLimit');
 
 // Сервер работает за nginx на той же машине: настоящий IP клиента берётся из X-Forwarded-For.
 app.set('trust proxy', 'loopback');
@@ -32,6 +32,7 @@ app.use((req, res, next) => {
 app.use(express.static('public'));
 // Журнал API: ошибки, медленные и оборванные запросы.
 app.use('/api', requestLog);
+app.use('/api', apiLimit());
 // Отчёты страницы о сбоях: лимит частоты до разбора тела, чтобы его расходовали и отклонённые запросы;
 // тело — не больше 2 КБ. Остальные запросы — с обычным ограничением express.json.
 app.use('/api/client-errors', clientErrorLimit, express.json({ limit: '2kb', inflate: false }));
