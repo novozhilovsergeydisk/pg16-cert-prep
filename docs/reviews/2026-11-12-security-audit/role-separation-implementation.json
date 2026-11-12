@@ -1,0 +1,52 @@
+{
+  "task": 235,
+  "state": "implemented_locally_not_deployed",
+  "baseline_commit": "f9ca989",
+  "migration": 146,
+  "postgres_test_version": "16.14",
+  "tap_passed": 14,
+  "tap_failed": 0,
+  "administrative_scenarios": 13,
+  "controller_checks_inside_scenario": 33,
+  "scenarios": [
+    "PG16: role migration, real runtime, repeat, drift guards and exact ACL rollback",
+    "Prepare full backup and private, immutable original manifest",
+    "Role-name collision rejects before ownership changes",
+    "Direct psql without ON_ERROR_STOP cannot bypass the administrative guard",
+    "Failure after ownership transfer rolls back the entire transaction",
+    "Apply twice, verify, original manifest retained",
+    "Wrong cluster manifest and unsafe state-file permissions are rejected",
+    "Runtime matrix through real controllers and real LOGIN connection",
+    "Unsafe replay of migration 145 is detected and rolls back in runner",
+    "Changed quota body with preserved security attributes is rejected",
+    "Unknown object causes fail-closed verification and rollback",
+    "Unexpected column and column grant option are detected",
+    "Rollback restores owners, function, ACLs and original column grant",
+    "Reapply after rollback and full restore of pre-change backup"
+  ],
+  "backup_integrity": true,
+  "full_restore_in_private_cluster": true,
+  "apply_twice": true,
+  "rollback_exact_normalized_acl_and_ownership": true,
+  "column_grants_restored": true,
+  "reapply_after_rollback": true,
+  "transaction_failure_atomicity": true,
+  "runtime_schema_and_data_not_changed": true,
+  "production_ddl_or_acl_changed": false,
+  "production_peer_readonly_probe": {
+    "postgres": "16.14",
+    "connected_as_superuser": true,
+    "euid_restored": true,
+    "egid_restored": true
+  },
+  "private_clusters_stopped": true,
+  "system_postgres_changed": false,
+  "source_sha256": "f6d077142737920858ce958ccdb75c6ee137a63b5b0853c70693d401ac7e3471",
+  "source_url": "https://ftp.postgresql.org/pub/source/v16.14/postgresql-16.14.tar.bz2",
+  "earlier_failures": [
+    "Invalid SSL configure flag; corrected with OpenSSL and pgcrypto",
+    "CASE expression syntax; corrected before successful apply",
+    "Column grants restored before table REVOKE; replay order corrected"
+  ],
+  "commit_or_deploy": false
+}

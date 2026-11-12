@@ -1,0 +1,153 @@
+{
+  "postgres": "17.11",
+  "production_postgres": "16.14",
+  "passed": 33,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "Real controllers: login code, user upsert, session",
+      "result": "passed"
+    },
+    {
+      "name": "Profile allowed columns",
+      "result": "passed"
+    },
+    {
+      "name": "Training insert and quota definer without counter grants",
+      "result": "passed"
+    },
+    {
+      "name": "Option cards and answers",
+      "result": "passed"
+    },
+    {
+      "name": "Exam and idempotent replay",
+      "result": "passed"
+    },
+    {
+      "name": "Statistics queries and admin read path",
+      "result": "passed"
+    },
+    {
+      "name": "AI accept/start/finish, identity sequences without grants",
+      "result": "passed"
+    },
+    {
+      "name": "AI continuation and rejection counter permissions",
+      "result": "passed"
+    },
+    {
+      "name": "Seven-section AI report under runtime",
+      "result": "passed"
+    },
+    {
+      "name": "No role escalation",
+      "result": "passed"
+    },
+    {
+      "name": "No privileged user insert",
+      "result": "passed"
+    },
+    {
+      "name": "No question changes",
+      "result": "passed"
+    },
+    {
+      "name": "No category insertion",
+      "result": "passed"
+    },
+    {
+      "name": "No archive access",
+      "result": "passed"
+    },
+    {
+      "name": "No quota counter access",
+      "result": "passed"
+    },
+    {
+      "name": "No quota tampering",
+      "result": "passed"
+    },
+    {
+      "name": "No DDL",
+      "result": "passed"
+    },
+    {
+      "name": "No DROP",
+      "result": "passed"
+    },
+    {
+      "name": "No TRUNCATE",
+      "result": "passed"
+    },
+    {
+      "name": "No disabled quota trigger",
+      "result": "passed"
+    },
+    {
+      "name": "No function replacement",
+      "result": "passed"
+    },
+    {
+      "name": "No CREATE schema",
+      "result": "passed"
+    },
+    {
+      "name": "No CREATE table",
+      "result": "passed"
+    },
+    {
+      "name": "No TEMP objects",
+      "result": "passed"
+    },
+    {
+      "name": "No SET ROLE owner",
+      "result": "passed"
+    },
+    {
+      "name": "No identity sequence reset",
+      "result": "passed"
+    },
+    {
+      "name": "No serial sequence reset",
+      "result": "passed"
+    },
+    {
+      "name": "No direct identity sequence usage",
+      "result": "passed"
+    },
+    {
+      "name": "Quota function is private and has fixed search_path",
+      "result": "passed"
+    },
+    {
+      "name": "Quota boundary still serialized under restricted runtime",
+      "result": "passed"
+    },
+    {
+      "name": "Future owner objects are closed by default",
+      "result": "passed"
+    },
+    {
+      "name": "Logout deletes session",
+      "result": "passed"
+    },
+    {
+      "name": "Administrative account deletion preserves counter consistency",
+      "result": "passed"
+    }
+  ],
+  "rollback_passed": 4,
+  "task": 235,
+  "baseline_commit": "f9ca989",
+  "state": "proposal_verified_locally",
+  "production_read_only": true,
+  "production_mutations": false,
+  "production_tables_owned_by_runtime": 16,
+  "production_sequences_owned_by_runtime": 11,
+  "production_runtime_memberships": 0,
+  "backup_runs_as_postgres": true,
+  "private_cluster_stopped": true,
+  "schema_only_no_user_data": true,
+  "application_code_changed": false
+}
