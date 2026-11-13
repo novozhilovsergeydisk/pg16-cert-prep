@@ -3,16 +3,19 @@ const assert = require('node:assert/strict');
 process.env.DOTENV_CONFIG_QUIET = 'true';
 const pool = require('../src/config/db');
 const withLaterFixes = require('./later-fixes');
-const source = require('../scripts/questions/132_low_level_lecture').questions.map(withLaterFixes);
+const source = [
+    ...require('../scripts/questions/132_low_level_lecture').questions,
+    ...require('../scripts/questions/147_low_level_files').questions,
+].map(withLaterFixes);
 after(() => pool.end());
 
-test('Раздел 11: восемь вопросов по сверке с лекцией в экзаменационной теме, согласованы с исходником', async () => {
+test('Раздел 11: вопросы по сверке с лекцией, включая дополнения 147, согласованы с исходниками', async () => {
     for (const item of source) {
         const { rows } = await pool.query(
             'SELECT q.options, q.correct_answer, q.explanation, q.option_notes FROM questions q JOIN categories c ON c.id = q.category_id WHERE left(c.name, 3) = $1 AND c.in_exam AND q.question_text = $2',
             [item.t + '.', item.q]
         );
-        assert.equal(rows.length, 1, 'Нужна миграция 132: ' + item.q.slice(0, 50));
+        assert.equal(rows.length, 1, 'Нужны миграции 132 и 147: ' + item.q.slice(0, 50));
         const q = rows[0];
         assert.equal(q.explanation, item.e);
         assert.deepEqual(Object.keys(q.option_notes).sort(), Object.keys(q.options).sort());
