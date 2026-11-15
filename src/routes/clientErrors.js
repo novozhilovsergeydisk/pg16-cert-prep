@@ -8,6 +8,7 @@ const router = express.Router();
 // Частота и размер тела ограничены в server.js до разбора тела. Ответ всегда одинаковый.
 const KINDS = new Set(['timeout', 'network', 'gateway', 'server', 'js']);
 const PATHS = new Set([
+    '/api/materials/networks',
     '/api/me', '/api/me/accent', '/api/me/theme', '/api/auth/request', '/api/auth/peek', '/api/auth/verify', '/api/auth/verify-code', '/api/auth/logout',
     '/api/categories', '/api/questions', '/api/training/batches', '/api/training/batches/:id', '/api/answers', '/api/option-checks', '/api/option-checks/batches',
     '/api/exam', '/api/exam/check', '/api/exam/history', '/api/exam/history/:id', '/api/mistakes', '/api/stats', '/api/materials/interview', '/api/materials/memory', '/api/materials/syscalls', '/api/materials/planner', '/api/materials/xact', '/api/materials/acid', '/api/materials/changelog', '/api/practice/01', '/api/practice/02', '/api/practice/03', '/api/practice/04', '/api/practice/05', '/api/practice/06', '/api/practice/07', '/api/practice/08', '/api/practice/09', '/api/practice/10', '/api/practice/11', '/api/practice/12', '/api/practice/13', '/api/practice/14', '/api/practice/15', '/api/practice/16', '/api/practice/17', '/api/practice/18', '/api/practice/19', '/api/practice/20',

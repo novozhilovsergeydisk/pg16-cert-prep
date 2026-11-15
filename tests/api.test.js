@@ -225,7 +225,8 @@ test('GET /api/categories возвращает id, name, in_exam и число �
     assert.equal(status, 200);
     assert.ok(Array.isArray(body) && body.length >= 1);
     for (const category of body) {
-        assert.deepEqual(Object.keys(category).sort(), ['id', 'in_exam', 'name', 'question_count']);
+        assert.deepEqual(Object.keys(category).sort(), ['exam_allowed', 'id', 'in_exam', 'name', 'question_count']);
+        assert.equal(typeof category.exam_allowed, 'boolean');
         assert.equal(typeof category.in_exam, 'boolean');
         assert.equal(Number.isInteger(category.question_count), true);
     }

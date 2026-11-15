@@ -52,7 +52,7 @@ async function logAnswers(userId, entries) {
 async function getCategories(req, res) {
     try {
         const result = await pool.query(
-            `SELECT c.id, c.name, c.in_exam, count(q.id)::int AS question_count
+            `SELECT c.id, c.name, c.in_exam, c.exam_allowed, count(q.id)::int AS question_count
              FROM categories c
              LEFT JOIN questions q ON q.category_id = c.id
              GROUP BY c.id
@@ -155,12 +155,14 @@ async function getExam(req, res) {
                 // Без явного выбора тем — только темы, входящие в экзамен.
                 `SELECT q.id, q.category_id, q.question_text, q.options, length(q.correct_answer) AS correct_count
                  FROM questions q JOIN categories c ON c.id = q.category_id
-                 WHERE c.in_exam
+                 WHERE c.in_exam AND c.exam_allowed
                  ORDER BY random() LIMIT $1`,
                 [count]
             )
             : await pool.query(
-                'SELECT id, category_id, question_text, options, length(correct_answer) AS correct_count FROM questions WHERE category_id = ANY($1::int[]) ORDER BY random() LIMIT $2',
+                `SELECT q.id, q.category_id, q.question_text, q.options, length(q.correct_answer) AS correct_count
+                 FROM questions q JOIN categories c ON c.id = q.category_id
+                 WHERE q.category_id = ANY($1::int[]) AND c.exam_allowed ORDER BY random() LIMIT $2`,
                 [categoryIds, count]
             );
         res.json(result.rows);
@@ -224,7 +226,8 @@ async function postExamCheck(req, res) {
         const found = await client.query(
             `SELECT q.id, q.category_id, c.name AS category_name, q.question_text, q.options,
                     q.correct_answer, q.explanation, q.option_notes
-             FROM questions q JOIN categories c ON c.id=q.category_id WHERE q.id=ANY($1::int[])`,
+             FROM questions q JOIN categories c ON c.id=q.category_id
+             WHERE q.id=ANY($1::int[]) AND c.exam_allowed`,
             [submitted.map(s => s.questionId)]
         );
         if (found.rowCount !== submitted.length) {

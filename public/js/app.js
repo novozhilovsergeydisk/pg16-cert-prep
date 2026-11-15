@@ -806,7 +806,7 @@
                 button.addEventListener('click', () => (checkMode ? startOptionCheck(category) : startCategory(category)));
                 item.appendChild(button);
                 // Материал к разделу; глава 7 материала о системных вызовах относится и к разделу 07.
-                const materialName = { '04.': 'acid', '05.': 'xact', '07.': 'syscalls', '17.': 'interview', '18.': 'memory', '19.': 'syscalls', '20.': 'planner' }[category.name.slice(0, 3)] || null;
+                const materialName = { '04.': 'acid', '05.': 'xact', '07.': 'syscalls', '17.': 'interview', '18.': 'memory', '19.': 'syscalls', '20.': 'planner', '21.': 'networks' }[category.name.slice(0, 3)] || null;
                 if (materialName) {
                     const link = document.createElement('button');
                     link.type = 'button';
@@ -1010,10 +1010,11 @@
     function updateTimeNote() {
         const count = selectedExamCount();
         const chosen = new Set(Array.from(document.querySelectorAll('#exam-categories input:checked')).map(n => Number(n.value)));
-        const available = categories.filter(c => chosen.has(c.id)).reduce((sum, c) => sum + (Number(c.question_count) || 0), 0);
+        const selectable = categories.filter(c => c.exam_allowed !== false);
+        const available = selectable.filter(c => chosen.has(c.id)).reduce((sum, c) => sum + (Number(c.question_count) || 0), 0);
         const actual = Math.min(count, available);
         $('exam-time-note').textContent = 'Вопросов: ' + actual + ' · Время: ' + (actual * SECONDS_PER_QUESTION / 60).toLocaleString('ru-RU') + ' мин';
-        $('exam-topics-note').textContent = chosen.size ? 'Выбрано тем: ' + chosen.size + ' из ' + categories.length : 'Выберите хотя бы одну тему';
+        $('exam-topics-note').textContent = chosen.size ? 'Выбрано тем: ' + chosen.size + ' из ' + selectable.length : 'Выберите хотя бы одну тему';
         $('exam-start').disabled = examStarting || actual === 0;
         document.querySelectorAll('#exam-setup-view input').forEach(n => { n.disabled = examStarting; });
     }
@@ -1047,7 +1048,7 @@
 
         const list = $('exam-categories');
         list.textContent = '';
-        categories.forEach((category) => {
+        categories.filter((category) => category.exam_allowed !== false).forEach((category) => {
             const label = document.createElement('label');
             label.className = 'option check';
             const input = document.createElement('input');
