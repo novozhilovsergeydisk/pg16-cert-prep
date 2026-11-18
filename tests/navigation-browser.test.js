@@ -28,6 +28,7 @@ async function fixture(t, owner = true, hash = '', setup = async () => {}) {
     const page = await context.newPage(); const errors = [];
     page.on('pageerror', () => errors.push(true)); page.setDefaultTimeout(7000);
     t.after(async () => { await context.close(); await query('DELETE FROM users WHERE id=$1', [id]); assert.equal(errors.length, 0); });
+    await page.route('**/js/offline.js', route => route.abort());
     await setup(page);
     await page.goto(base + hash); await page.locator('#categories .card').first().waitFor();
     return page;

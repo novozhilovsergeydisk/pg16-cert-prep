@@ -50,6 +50,7 @@ async function pageFor(t, width = 390) {
     page.on('dialog', (dialog) => dialog.accept());
     await page.clock.install();
     await page.clock.pauseAt(new Date(Date.now() + 1000));
+    await page.route('**/js/offline.js', (route) => route.abort());
     await page.goto(base);
     await page.locator('#categories .card').first().waitFor();
     return { page, userId };

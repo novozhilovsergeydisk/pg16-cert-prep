@@ -137,7 +137,7 @@ async function openSession(client, res, email) {
     );
     await client.query('COMMIT');
     res.cookie(COOKIE_NAME, sid, { ...cookieOptions(), maxAge: SESSION_DAYS * 24 * HOUR_MS });
-    res.json({ email: user.rows[0].email, role: user.rows[0].role, accent: user.rows[0].accent, theme: user.rows[0].theme, release });
+    res.json({ id: user.rows[0].id, email: user.rows[0].email, role: user.rows[0].role, accent: user.rows[0].accent, theme: user.rows[0].theme, release });
 }
 
 // Показывает, в какой аккаунт ведёт ссылка, не расходуя её: страница подтверждения пишет «Вход как …»,
@@ -259,7 +259,7 @@ async function logout(req, res) {
 }
 
 function getMe(req, res) {
-    res.json({ email: req.user.email, role: req.user.role, accent: req.user.accent, theme: req.user.theme, release });
+    res.json({ id: req.user.id, email: req.user.email, role: req.user.role, accent: req.user.accent, theme: req.user.theme, release });
 }
 
 // Цвет кнопок и ссылок; тот же список проверяет ограничение users_accent_check (миграция 106).

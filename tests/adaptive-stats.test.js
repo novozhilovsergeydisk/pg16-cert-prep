@@ -7,7 +7,7 @@ process.env.NODE_ENV = 'test';
 process.env.DOTENV_CONFIG_QUIET = 'true';
 const app = require('../server');
 const pool = require('../src/config/db');
-let browser, server, base;
+let browser, server, base, nextIp = 40;
 async function query(sql, values) {
     try { return await pool.query(sql, values); }
     catch { throw new Error('Adaptive stats fixture query failed'); }
@@ -23,11 +23,13 @@ async function newUser() {
     const id = (await query("INSERT INTO users(email,role,theme) VALUES($1,'user','light') RETURNING id", ['adaptive-' + crypto.randomUUID() + '@example.test'])).rows[0].id;
     const token = crypto.randomBytes(32).toString('base64url');
     await query("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 hour')", [crypto.createHash('sha256').update(token).digest(), id]);
-    return { id, token };
+    // Отдельный IP на пользователя: глобальный лимит запросов всплеском считается по адресу.
+    return { id, token, ip: '198.51.100.' + (++nextIp % 200) };
 }
 async function request(path, u, body) {
     const response = await fetch(base + path, { method: body ? 'POST' : 'GET', headers: {
         ...(u ? { Cookie: 'sid=' + u.token } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}),
+        ...(u?.ip ? { 'X-Forwarded-For': u.ip } : {}),
     }, body: body ? JSON.stringify(body) : undefined });
     return { status: response.status, body: await response.json() };
 }
@@ -86,10 +88,12 @@ async function pageFixture(t, width, theme, populated = true) {
     const f = await fixture(t, populated);
     process.env.AI_ENABLED = '1'; process.env.AI_OWNER_USER_ID = String(f.owner.id);
     await query('UPDATE users SET theme=$1 WHERE id=$2', [theme, f.owner.id]);
-    const context = await browser.newContext({ viewport: { width, height: 900 } });
+    const context = await browser.newContext({ viewport: { width, height: 900 }, extraHTTPHeaders: { 'X-Forwarded-For': f.owner.ip } });
     t.after(() => context.close());
     await context.addCookies([{ name: 'sid', value: f.owner.token, url: base, httpOnly: true, sameSite: 'Lax' }]);
     const page = await context.newPage(); page.setDefaultTimeout(7000);
+    // Эти тесты проверяют вёрстку и агрегаты по сетевым ответам: локальная очередь PWA отключена.
+    await page.route('**/js/offline.js', route => route.abort());
     const errors = []; page.on('pageerror', () => errors.push(true));
     t.after(() => assert.equal(errors.length, 0));
     // Скриншоты используют только собственную категорию фикстуры и её реальные агрегаты БД.

@@ -1166,3 +1166,7 @@ h2 { color: var(--fg); font-size: 1.3rem; letter-spacing: -.025em; }
     .nav-icon, .nav-label-short { display: block; }
     .nav-label-full { display: none; }
 }
+.sync-panel { max-width: 960px; margin: 1rem auto; padding: 1rem; overflow-wrap: anywhere; }
+.sync-panel p { margin: 0 0 .6rem; }
+#sync-conflicts { margin-top: 1rem; }
+#sync-conflicts button { margin: .3rem; }

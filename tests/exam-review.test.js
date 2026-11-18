@@ -154,6 +154,8 @@ test('A lost completion response followed by reload and retry preserves order an
     t.after(() => context.close());
     await context.addCookies([{ name: 'sid', value: f.owner.token, url: base, httpOnly: true, sameSite: 'Lax' }]);
     const page = await context.newPage(); page.setDefaultTimeout(7000);
+    // Тест проверяет сетевые повторы: локальная очередь PWA отключена, запросы идут в сеть.
+    await page.route('**/js/offline.js', route => route.abort());
     await page.route('**/api/exam?*', route => route.fulfill({ json: [{ id: f.q.id, category_id: 1, question_text: f.q.question_text, options: f.q.options, correct_count: 2 }] }));
     let lost = true;
     await page.route('**/api/exam/check', async route => {
@@ -183,6 +185,8 @@ test('Review failure allows retry and a delayed review cannot replace another se
     const context = await browser.newContext(); t.after(() => context.close());
     await context.addCookies([{ name: 'sid', value: f.owner.token, url: base, httpOnly: true, sameSite: 'Lax' }]);
     const page = await context.newPage(); page.setDefaultTimeout(7000);
+    // Тест проверяет сетевые ошибки разбора: локальная очередь PWA отключена, запросы идут в сеть.
+    await page.route('**/js/offline.js', route => route.abort());
     await page.goto(base + '/#/results'); await page.locator('#open-history').click();
     await page.route('**/api/exam/history/*', route => route.fulfill({ status: 503, json: { error: 'Не удалось загрузить разбор экзамена. Попробуйте ещё раз.' } }));
     await page.locator('#history-list button').click(); await page.locator('#error').waitFor({ state: 'visible' });

@@ -723,7 +723,7 @@ test('Вход по ссылке: письмо, одноразовый токе�
 
     const verify = await post('/api/auth/verify', { token: tokenFromMail(mail) }, null);
     assert.equal(verify.status, 200);
-    assert.deepEqual(verify.body, { email, role: 'user', accent: 'blue', theme: 'auto', release });
+    assert.deepEqual(verify.body, { id: (await pool.query('SELECT id FROM users WHERE email=$1', [email])).rows[0].id, email, role: 'user', accent: 'blue', theme: 'auto', release });
     const cookie = sidFrom(verify.headers);
     assert.ok(cookie, 'ставится cookie сеанса');
     assert.match(verify.headers.get('set-cookie'), /HttpOnly/i);
@@ -731,7 +731,7 @@ test('Вход по ссылке: письмо, одноразовый токе�
 
     const me = await get('/api/me', cookie);
     assert.equal(me.status, 200);
-    assert.deepEqual(me.body, { email, role: 'user', accent: 'blue', theme: 'auto', release });
+    assert.deepEqual(me.body, { id: (await pool.query('SELECT id FROM users WHERE email=$1', [email])).rows[0].id, email, role: 'user', accent: 'blue', theme: 'auto', release });
 
     const again = await post('/api/auth/verify', { token: tokenFromMail(mail) }, null);
     assert.equal(again.status, 400, 'токен одноразовый');
@@ -848,7 +848,7 @@ test('Вход по коду из письма: код одноразовый и
 
     const ok = await post('/api/auth/verify-code', { email: email.toUpperCase(), request_id: requestId, code }, null);
     assert.equal(ok.status, 200);
-    assert.deepEqual(ok.body, { email, role: 'user', accent: 'blue', theme: 'auto', release });
+    assert.deepEqual(ok.body, { id: (await pool.query('SELECT id FROM users WHERE email=$1', [email])).rows[0].id, email, role: 'user', accent: 'blue', theme: 'auto', release });
     const cookie = sidFrom(ok.headers);
     assert.ok(cookie, 'ставится cookie сеанса');
     assert.equal((await get('/api/me', cookie)).status, 200);

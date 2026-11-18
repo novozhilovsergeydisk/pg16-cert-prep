@@ -54,6 +54,7 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 app.use('/api', require('./src/routes/auth'));
+app.use('/api', require('./src/routes/sync').router);
 // До маршрутов с обязательным входом: отчёты принимаются и без него.
 app.use('/api', require('./src/routes/clientErrors'));
 app.use('/api', require('./src/routes/stats'));

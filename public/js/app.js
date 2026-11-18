@@ -34,6 +34,7 @@
     let trainingBatchId = null;
     // Режим «Подходит или нет»: порция карточек, номер текущей, счёт и ответы без подтверждения сервера.
     let checkMode = false;
+    let modeTouched = false;
     let checkBatch = null;
     let checkIndex = 0;
     let checkScore = 0;
@@ -198,6 +199,11 @@
     }
 
     async function api(url, options) {
+        if (options?.method === 'POST' && url === '/api/exam/check') await draftWrites;
+        if (window.PGOffline && url !== '/api/me') {
+            const local = await window.PGOffline.request(url, options);
+            if (local.handled) return local.value;
+        }
         const started = Date.now();
         const { response, body, timedOut } = await timedFetch(url, options);
         const ms = Date.now() - started;
@@ -310,6 +316,7 @@
         $('login-confirm').disabled = true;
         try {
             const me = await postJson('/api/auth/verify', { token: loginToken });
+            await window.PGOffline?.afterLogin(me);
             loginToken = null;
             startApp(me);
         } catch (err) {
@@ -331,7 +338,9 @@
         }
         $('code-submit').disabled = true;
         try {
-            startApp(await postJson('/api/auth/verify-code', { email: loginEmail, request_id: loginRequest, code }));
+            const me = await postJson('/api/auth/verify-code', { email: loginEmail, request_id: loginRequest, code });
+            await window.PGOffline?.afterLogin(me);
+            await startApp(me);
         } catch (err) {
             showError(err.message);
         } finally {
@@ -343,6 +352,11 @@
     // иначе на общем компьютере сеанс остался бы рабочим, а человек думал бы, что вышел.
     async function logout() {
         showError('');
+        if (window.PGOffline?.ready()) {
+            try { if (await window.PGOffline.logout()) window.location.replace(window.location.pathname); }
+            catch (err) { showError(err.message); }
+            return;
+        }
         try {
             await postJson('/api/auth/logout', {});
         } catch (err) {
@@ -419,13 +433,20 @@
     }
 
     async function startApp(me) {
+        if (!me.id) me = await api('/api/me');
         const initialSection = location.hash.slice(2);
         user = me;
+        if (window.PGOffline) {
+            try { await window.PGOffline.use(me); }
+            catch (err) { showError(err.message); }
+            me = window.PGOffline.profile() || me;
+            user = me;
+        }
         ai.setUser(me);
         applyAccent(me.accent);
         applyTheme(me.theme);
         const trainingPointer = readPractice('training'), checkPointer = readPractice('check');
-        setMode(Boolean(checkPointer && (!trainingPointer || checkPointer.updatedAt > trainingPointer.updatedAt)));
+        if (!modeTouched) setMode(Boolean(checkPointer && (!trainingPointer || checkPointer.updatedAt > trainingPointer.updatedAt)));
         $('release-name').textContent = me.release ? `${me.release.date} · ${me.release.commit}` : 'неизвестен';
         $('release').hidden = false;
         $('user-email').textContent = me.email;
@@ -487,8 +508,9 @@
     async function init() {
         if (takeLoginLink()) return;
         try {
-            startApp(await api('/api/me'));
+            await startApp(window.PGOffline ? await window.PGOffline.boot() : await api('/api/me'));
         } catch (err) {
+            showLogin();
             if (err.message) showError(err.message);
         }
     }
@@ -626,11 +648,42 @@
 
     // Категории и тренировка
 
+    let draftWrites = Promise.resolve();
+    function persistOfflineDraft(kind, data) {
+        if (!window.PGOffline?.ready()) return;
+        const copy = JSON.parse(JSON.stringify(data));
+        const actor = user;
+        draftWrites = draftWrites.catch(() => {}).then(() => user === actor ? window.PGOffline.saveDraft(kind, copy) : undefined);
+        draftWrites.catch(err => { showError(err.message); window.PGOffline.report(err); });
+    }
+    let pendingAiOffer = null;
+    function offerAi(element, context) {
+        if (window.PGOffline?.ready()) {
+            if (!window.PGOffline.connected()) { element.textContent = 'Для ответа ИИ требуется интернет'; return; }
+            if (context.batch_id) {
+                const mapped = window.PGOffline.aiContext(context);
+                if (!mapped) {
+                    pendingAiOffer = { element, context };
+                    element.textContent = 'Сначала синхронизируйте тренировку для ответа ИИ';
+                    return;
+                }
+                context = mapped;
+            }
+        }
+        pendingAiOffer = null;
+        ai.offer(element, context);
+    }
+    window.addEventListener('pg16-synced', () => {
+        if (!pendingAiOffer) return;
+        const { element, context } = pendingAiOffer;
+        if (element.closest('section')?.hidden) return;
+        offerAi(element, context);
+    });
     function practiceKey(kind) { return user ? 'pg16-practice:' + user.email + ':' + kind : null; }
     function readPractice(kind) {
         try {
             const p = JSON.parse(localStorage.getItem(practiceKey(kind)) || 'null');
-            return p && Number.isInteger(p.id) && p.id > 0 && Number.isInteger(p.index) && p.index >= 0
+            return p && ((Number.isInteger(p.id) && p.id > 0) || (typeof p.id === 'string' && /^[a-z0-9:-]+$/i.test(p.id))) && Number.isInteger(p.index) && p.index >= 0
                 && typeof p.name === 'string' && Number.isInteger(p.total) && p.total > p.index ? p : null;
         } catch { return null; }
     }
@@ -646,9 +699,11 @@
         const pending = training ? unconfirmedAnswers.has(key) : unconfirmedChecks.has(key);
         const draft = training ? collectAnswer($('options')) : (pending ? unconfirmedChecks.get(key) : null);
         try {
-            localStorage.setItem(practiceKey(kind), JSON.stringify({ id, index: at, total, questionId,
+            const pointer = { id, index: at, total, questionId,
                 name: training ? $('category-name').textContent : checkBatch.category_name,
-                draft, pending, updatedAt: Date.now() }));
+                draft, pending, updatedAt: Date.now() };
+            localStorage.setItem(practiceKey(kind), JSON.stringify(pointer));
+            persistOfflineDraft(kind, pointer);
         } catch { /* Без хранилища работа в текущей вкладке продолжается. */ }
     }
     function clearPracticePointer(kind, id) {
@@ -945,7 +1000,7 @@
         $('result-correct').textContent = (rightKeys.length > 1 ? 'Правильные ответы: ' : 'Правильный ответ: ') + rightLetters;
         $('result-explanation').textContent = result.explanation || '';
         $('result').hidden = false;
-        ai.offer($('ai-question'), { mode: 'training', batch_id: trainingBatchId, question_id: question.id });
+        offerAi($('ai-question'), { mode: 'training', batch_id: trainingBatchId, question_id: question.id });
         $('submit').disabled = true;
     }
 
@@ -1083,7 +1138,7 @@
         const key = savedExamKey();
         if (!key || !exam || exam.finishing) return;
         try {
-            localStorage.setItem(key, JSON.stringify({
+            const draft = {
                 questions: exam.questions,
                 answers: exam.answers,
                 index: exam.index,
@@ -1091,10 +1146,10 @@
                 deadline: exam.deadline,
                 visited: exam.visited,
                 submissionId: exam.submissionId,
-            }));
-        } catch (err) {
-            // хранилище недоступно или переполнено — экзамен просто не переживёт закрытие вкладки
-        }
+            };
+            localStorage.setItem(key, JSON.stringify(draft));
+            persistOfflineDraft('exam', draft);
+        } catch (err) { showError('Не удалось сохранить экзамен на устройстве. Освободите место и повторите действие.'); }
     }
 
     function readSavedExam() {
@@ -1640,6 +1695,10 @@
         const revision = viewRevision;
         let text;
         try {
+            const saved = window.PGOffline?.document(url);
+            if (saved !== undefined) {
+                renderMaterial($('material-body'), saved); show('material'); window.scrollTo(0, 0); return;
+            }
             const started = Date.now();
             const { response, body, timedOut } = await timedFetch(url);
             if (response && response.status === 401) {
@@ -1982,7 +2041,7 @@
         $('check-explanation').textContent = result.explanation || '';
         $('check-option').className = 'check-option ' + (result.right ? 'right' : 'wrong');
         $('check-result').hidden = false;
-        ai.offer($('ai-check'), { mode: 'option-check', batch_id: checkBatch.id, question_id: card.question_id });
+        offerAi($('ai-check'), { mode: 'option-check', batch_id: checkBatch.id, question_id: card.question_id });
     }
 
     async function submitOptionCheck(fits) {
@@ -2020,8 +2079,8 @@
         }
     }
 
-    $('mode-train').addEventListener('click', () => setMode(false));
-    $('mode-check').addEventListener('click', () => setMode(true));
+    $('mode-train').addEventListener('click', () => { modeTouched = true; setMode(false); });
+    $('mode-check').addEventListener('click', () => { modeTouched = true; setMode(true); });
     $('check-yes').addEventListener('click', () => submitOptionCheck(true));
     $('check-no').addEventListener('click', () => submitOptionCheck(false));
     $('check-next').addEventListener('click', () => {
@@ -2082,6 +2141,14 @@
     $('logout').addEventListener('click', logout);
     $('accent-select').addEventListener('change', changeAccent);
     $('theme-select').addEventListener('change', changeTheme);
+    $('sync-mode-select').addEventListener('change', async (event) => {
+        try {
+            await window.PGOffline.setSyncMode(event.target.value);
+        } catch (err) {
+            event.target.value = window.PGOffline.syncMode();
+            showError(err.message || 'Не удалось сохранить режим синхронизации');
+        }
+    });
     $('open-changelog').addEventListener('click', () => openMaterial('changelog'));
     $('open-privacy').addEventListener('click', openPrivacy);
     $('privacy-back').addEventListener('click', () => {
@@ -2109,5 +2176,15 @@
         if (!takeLoginLink() && location.hash.startsWith('#/')) navigateSection(location.hash.slice(2), true);
     });
 
+    window.addEventListener('pg16-synced', () => {
+        if (!user) return;
+        const profile = window.PGOffline.profile();
+        if (profile?.id !== user.id) return;
+        applyAccent(profile.accent); applyTheme(profile.theme);
+        updatePracticeOffer();
+        if (activeView === 'categories') loadCategories({ route: false });
+        if (activeView === 'stats') openStats();
+        if (activeView === 'history') openHistory();
+    });
     init();
 })();

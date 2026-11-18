@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Тренажёр сертификации PostgreSQL 16</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="theme-color" content="#336791">
     <link rel="stylesheet" href="css/style.css">
     <script src="js/accent.js"></script>
 </head>
@@ -21,6 +23,7 @@
                 <span class="profile-label">Профиль</span>
             </summary>
             <div class="profile-panel">
+            <button id="pwa-install" type="button" class="btn-secondary" hidden>Установить приложение</button>
             <label class="accent-picker">Тема
                 <select id="theme-select">
                     <option value="auto">Как в системе</option>
@@ -34,6 +37,12 @@
                     <option value="beige">Бежевый</option>
                     <option value="green">Зелёный</option>
                     <option value="graphite">Графитовый</option>
+                </select>
+            </label>
+            <label class="accent-picker">Синхронизация
+                <select id="sync-mode-select">
+                    <option value="auto">Автоматически</option>
+                    <option value="manual">Вручную</option>
                 </select>
             </label>
             <span id="user-email" class="user-email"></span>
@@ -81,6 +90,7 @@
         <section id="privacy-view" hidden>
             <h2>Персональные данные</h2>
             <p>Email используется только для входа и никому не передаётся.</p>
+            <p>При автономной работе (приложение PWA) учебные материалы, ваши ответы и незавершённые занятия сохраняются на этом устройстве до синхронизации с сервером. Очистка данных приложения в настройках устройства удалит результаты, которые ещё не синхронизированы.</p>
             <button id="privacy-back" class="btn-secondary" type="button">Назад</button>
         </section>
 
@@ -312,6 +322,13 @@
         <p id="release" class="release" hidden>Релиз <span id="release-name"></span> · <button id="open-changelog" class="link" type="button">Что нового</button></p>
     </main>
 
+    <aside id="sync-panel" class="sync-panel" hidden aria-label="Состояние синхронизации">
+        <p id="sync-status" role="status" aria-live="polite"></p>
+        <button id="sync-retry" type="button" class="btn-secondary">Синхронизировать</button>
+        <div id="sync-conflicts" hidden></div>
+    </aside>
+    <script src="js/offline-core.js"></script>
+    <script src="js/offline.js"></script>
     <script src="js/ai.js"></script>
     <script src="js/app.js"></script>
 </body>
