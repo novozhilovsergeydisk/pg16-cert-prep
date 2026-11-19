@@ -215,19 +215,88 @@
     }
 
     // Отчёт о сбое в журнал сервера: только вид сбоя, путь, код, длительность, экран и место ошибки.
-    // Свободного текста нет. Не больше 10 отчётов за загрузку страницы; сбой отправки отчёта не порождает новый.
+    const reportPrefix = 'pg16-report:';
+    const operationPrefix = 'pg16-operation:';
+    const reportQueue = new Map();
+    let sendingReports = false;
     let reportsLeft = 10;
+
+    function storedReports(prefix) {
+        try {
+            return Object.keys(localStorage).filter(key => key.startsWith(prefix)).sort().map(key => ({
+                key, value: JSON.parse(localStorage.getItem(key)),
+            }));
+        } catch { return []; }
+    }
+
+    function removeReport(key) {
+        reportQueue.delete(key);
+        try { localStorage.removeItem(key); } catch { /* Storage can be disabled. */ }
+    }
+
+    async function flushReports() {
+        if (sendingReports || navigator.onLine === false) return;
+        sendingReports = true;
+        try {
+            for (const [key, body] of reportQueue) {
+                const { response } = await timedFetch('/api/client-errors', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body), keepalive: true,
+                });
+                if (!response || response.status === 429 || response.status >= 500) break;
+                removeReport(key);
+            }
+        } finally { sendingReports = false; }
+    }
+
     function reportClientError(report) {
         if (reportsLeft <= 0) return;
         reportsLeft -= 1;
-        const body = Object.assign({ screen: currentView() }, report);
+        const body = Object.assign({ screen: currentView(), release: user?.release?.commit }, report);
         if (body.path) body.path = String(body.path).split('?')[0];
-        timedFetch('/api/client-errors', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-            keepalive: true,
-        });
+        const key = reportPrefix + Date.now() + ':' + crypto.randomUUID();
+        reportQueue.set(key, body);
+        try { localStorage.setItem(key, JSON.stringify(body)); } catch { /* Keep the in-memory copy. */ }
+        while (reportQueue.size > 20) removeReport(reportQueue.keys().next().value);
+        flushReports();
+    }
+
+    function watchOperation(operation) {
+        const started = Date.now();
+        const key = operationPrefix + operation;
+        const details = { operation, screen: currentView(), release: user?.release?.commit };
+        const stored = JSON.stringify({ ...details, started });
+        try { localStorage.setItem(key, stored); } catch { /* Live reporting remains available. */ }
+        let reported = false;
+        function reportSlow() {
+            reported = true;
+            reportClientError({ ...details, kind: 'operation-slow', ms: Date.now() - started });
+        }
+        const timer = setTimeout(reportSlow, API_TIMEOUT_MS);
+        return () => {
+            clearTimeout(timer);
+            if (!reported && Date.now() - started >= API_TIMEOUT_MS) reportSlow();
+            try { if (localStorage.getItem(key) === stored) localStorage.removeItem(key); } catch { /* Storage can be disabled. */ }
+        };
+    }
+
+    function recoverReports() {
+        for (const { key, value } of storedReports(reportPrefix).slice(-20)) {
+            if (value) reportQueue.set(key, value);
+        }
+        for (const { key, value } of storedReports(operationPrefix)) {
+            removeReport(key);
+            if (!value) continue;
+            const { started, ...details } = value;
+            const ms = Date.now() - started;
+            if (ms >= API_TIMEOUT_MS && ms <= 600000) {
+                reportClientError({ ...details, kind: 'operation-interrupted', ms });
+            }
+        }
+        window.addEventListener('online', flushReports);
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) flushReports(); });
+        setInterval(flushReports, 30000);
+        flushReports();
     }
 
     window.addEventListener('error', (event) => {
@@ -248,8 +317,14 @@
     async function api(url, options) {
         if (options?.method === 'POST' && url === '/api/exam/check') await draftWrites;
         if (window.PGOffline && url !== '/api/me') {
-            const local = await window.PGOffline.request(url, options);
-            if (local.handled) return local.value;
+            const started = Date.now();
+            try {
+                const local = await window.PGOffline.request(url, options);
+                if (local.handled) return local.value;
+            } catch (err) {
+                reportClientError({ kind: 'local', path: url, ms: Date.now() - started });
+                throw err;
+            }
         }
         const started = Date.now();
         const { response, body, timedOut } = await timedFetch(url, options);
@@ -485,7 +560,7 @@
         user = me;
         if (window.PGOffline) {
             try { await window.PGOffline.use(me); }
-            catch (err) { showError(err.message); }
+            catch (err) { reportClientError({ kind: 'local', operation: 'start-pwa' }); showError(err.message); }
             me = window.PGOffline.profile() || me;
             user = me;
         }
@@ -554,12 +629,14 @@
 
     async function init() {
         if (takeLoginLink()) return;
+        const finishStartup = watchOperation('start-pwa');
         try {
             await startApp(window.PGOffline ? await window.PGOffline.boot() : await api('/api/me'));
         } catch (err) {
+            if (!err.login && !err.network && !err.status) reportClientError({ kind: 'local', operation: 'start-pwa' });
             showLogin();
             if (err.message) showError(err.message);
-        }
+        } finally { finishStartup(); }
     }
 
     function plural(n, one, few, many) {
@@ -701,7 +778,10 @@
         const copy = JSON.parse(JSON.stringify(data));
         const actor = user;
         draftWrites = draftWrites.catch(() => {}).then(() => user === actor ? window.PGOffline.saveDraft(kind, copy) : undefined);
-        draftWrites.catch(err => { showError(err.message); window.PGOffline.report(err); });
+        draftWrites.catch(err => {
+            reportClientError({ kind: 'local', operation: 'save-draft' });
+            showError(err.message); window.PGOffline.report(err);
+        });
     }
     let pendingAiOffer = null;
     function offerAi(element, context) {
@@ -870,6 +950,7 @@
         stopTimer();
         exam = null;
         show('categories', { route });
+        const finishLoading = watchOperation('load-categories');
         const revision = viewRevision;
         updatePracticeOffer();
         $('categories-loading').hidden = false;
@@ -931,7 +1012,7 @@
         } catch (err) {
             if (revision !== viewRevision) return;
             showError(err.message);
-        }
+        } finally { finishLoading(); }
         if (revision === viewRevision) $('categories-loading').hidden = true;
         checkSavedExam();
     }
@@ -1064,6 +1145,7 @@
         }
         $('submit').disabled = true;
         document.querySelectorAll('#options input').forEach((input) => { input.disabled = true; });
+        const finishSaving = watchOperation('submit-answer');
         const answerKey = answerKeyOf(question);
         const actor = user;
         const wasUnconfirmed = unconfirmedAnswers.has(answerKey);
@@ -1099,7 +1181,7 @@
                 document.querySelectorAll('#options input').forEach((input) => { input.disabled = false; });
             }
             showError(unconfirmed ? ANSWER_NOT_SAVED : err.message);
-        }
+        } finally { finishSaving(); }
     }
 
     // Экзамен: настройка
@@ -2229,10 +2311,11 @@
         if (profile?.id !== user.id) return;
         applyAccent(profile.accent); applyTheme(profile.theme);
         updatePracticeOffer();
-        if (activeView === 'categories') loadCategories({ route: false });
+        if (activeView === 'categories' && !practiceLoading) loadCategories({ route: false });
         if (activeView === 'stats') openStats();
         if (activeView === 'history') openHistory();
     });
+    recoverReports();
     watchConnection();
     init();
 })();

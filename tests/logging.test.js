@@ -156,6 +156,13 @@ test('Отчёт страницы после входа содержит ном�
     assert.deepEqual(unknown.lines, []);
 });
 
+test('Отчёт о прерванной локальной операции содержит только разрешённые поля', async () => {
+    const body = { kind: 'operation-interrupted', screen: 'question', operation: 'submit-answer', release: '1eb973f', ms: 20000, answer: 'AB' };
+    const { result, lines } = await captureLog(() => request('/api/client-errors', { method:'POST', body, ip:'203.0.113.6' }));
+    assert.equal(result.status, 204);
+    assert.deepEqual(lines, ['client operation-interrupted path=- status=0 ms=20000 screen=question user=- source=-:0 operation=submit-answer release=1eb973f']);
+});
+
 test('Отчёт страницы больше 2 КБ отклоняется, ошибка разбора тела попадает в журнал', async () => {
     const { result, lines } = await captureLog(() => request('/api/client-errors', { method: 'POST', body: { kind: 'js', x: 'x'.repeat(3000) }, ip: '203.0.113.4' }));
     assert.equal(result.status, 413);

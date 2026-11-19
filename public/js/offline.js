@@ -90,7 +90,10 @@
         if(hasDOM && 'serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{message='Не удалось подготовить запуск без интернета. Повторите загрузку.';paint();});
         if(navigator.storage?.persist)navigator.storage.persist().catch(()=>{});
         if(!timer&&hasDOM)timer=setInterval(()=>{if(document.visibilityState==='visible')sync();},30000);
-        await sync();
+        if(account.ready&&catalog){
+            // A saved catalog remains usable while remote changes are being downloaded.
+            sync().catch(e=>{message=e.message;paint();});
+        }else await sync();
     }
     async function ensureActor(uid){const m=await read('meta');if(m?.locked||m?.active!==uid||account?.me.id!==uid)throw new Error('Аккаунт изменился. Синхронизация остановлена.');}
     async function prepare(uid){
@@ -204,8 +207,14 @@
         if(!s)return [];
         const out=new Map(),base=s.base;
         for(const [kind,table,answers,field] of [['training','training_batches','answer_log','training_batch_id'],['check','option_check_batches','option_check_answers','batch_id']]){
+            const byBatch=new Map();
+            for(const answer of Object.values(base[answers]||{})){
+                const id=answer[field];
+                if(!byBatch.has(id))byBatch.set(id,[]);
+                byBatch.get(id).push(answer);
+            }
             for(const row of Object.values(base[table]||{})){
-                try{const a=C.legacy(kind,row,Object.values(base[answers]||{}).filter(x=>x[field]===row.id),catalog?.questions || []);out.set(a.id,a);}catch{}
+                try{const a=C.legacy(kind,row,byBatch.get(row.id)||[],catalog?.questions || []);out.set(a.id,a);}catch{}
             }
         }
         for(const row of Object.values(base.sync_attempts||{})){

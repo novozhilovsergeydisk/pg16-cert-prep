@@ -6,7 +6,8 @@ const router = express.Router();
 // Отчёты страницы о сбоях запросов и ошибках JavaScript пишутся в журнал службы.
 // Свободного текста нет: путь, экран и файл принимаются только из списков ниже, числа — в пределах.
 // Частота и размер тела ограничены в server.js до разбора тела. Ответ всегда одинаковый.
-const KINDS = new Set(['timeout', 'network', 'gateway', 'server', 'js']);
+const KINDS = new Set(['timeout', 'network', 'gateway', 'server', 'js', 'local', 'operation-slow', 'operation-interrupted']);
+const OPERATIONS = new Set(['start-pwa', 'load-categories', 'submit-answer', 'save-draft']);
 const PATHS = new Set([
     '/api/materials/networks',
     '/api/me', '/api/me/accent', '/api/me/theme', '/api/auth/request', '/api/auth/peek', '/api/auth/verify', '/api/auth/verify-code', '/api/auth/logout',
@@ -17,7 +18,7 @@ const PATHS = new Set([
 const SCREENS = new Set(['login', 'login-sent', 'login-confirm', 'privacy', 'categories', 'question', 'finish',
     'exam-setup', 'exam', 'exam-result', 'history', 'training-history', 'training-batch', 'stats', 'admin',
     'admin-user', 'material', 'option-check']);
-const SOURCES = new Set(['app.js']);
+const SOURCES = new Set(['app.js', 'offline.js', 'offline-core.js', 'ai.js', 'accent.js']);
 
 const pick = (value, allowed) => (typeof value === 'string' && allowed.has(value) ? value : '-');
 const int = (value, max) => (Number.isInteger(value) && value >= 0 && value <= max ? value : 0);
@@ -25,10 +26,11 @@ const int = (value, max) => (Number.isInteger(value) && value >= 0 && value <= m
 const apiPath = (value) => pick(typeof value === 'string' ? value.replace(/\/\d+(?=\/|$)/g, '/:id') : null, PATHS);
 
 router.post('/client-errors', async (req, res) => {
-    res.status(204).end();
     const report = req.body && typeof req.body === 'object' ? req.body : {};
-    if (!KINDS.has(report.kind)) return;
+    if (!KINDS.has(report.kind)) return res.status(204).end();
     const user = await sessionUserId(req);
+    const operation = pick(report.operation, OPERATIONS);
+    const release = typeof report.release === 'string' && /^[a-f0-9]{7,40}$/.test(report.release) ? report.release : null;
     console.warn([
         'client', report.kind,
         'path=' + apiPath(report.path),
@@ -37,7 +39,10 @@ router.post('/client-errors', async (req, res) => {
         'screen=' + pick(report.screen, SCREENS),
         'user=' + user,
         'source=' + pick(report.source, SOURCES) + ':' + int(report.line, 1000000),
+        ...(operation === '-' ? [] : ['operation=' + operation]),
+        ...(release ? ['release=' + release] : []),
     ].join(' '));
+    res.status(204).end();
 });
 
 module.exports = router;

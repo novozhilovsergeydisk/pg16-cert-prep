@@ -87,6 +87,55 @@ test('Mobile connection indicator detects request failure while the browser repo
     await page.evaluate(() => window.dispatchEvent(new Event('pageshow')));
     await status.waitFor({state:'hidden'});
 });
+test('Mobile PWA resumes training and saves an answer while startup sync is waiting', async t => {
+    const f = await fixture(t), {page} = await f.device();
+    await page.locator('#categories .card').first().click();
+    await page.locator('#question-view').waitFor();
+    await synced(page);
+    let intercept, release;
+    const intercepted = new Promise(resolve => { intercept = resolve; });
+    const gate = new Promise(resolve => { release = resolve; });
+    await page.route('**/api/sync/changes?*', async route => {
+        intercept();
+        await gate;
+        await route.continue().catch(() => {});
+    });
+    try {
+        await page.reload();
+        await Promise.race([intercepted, page.waitForRequest('**/api/sync/changes?*', {timeout:10000})]);
+        await page.locator('#practice-resume-button').click({timeout:5000});
+        await page.locator('#options input').first().check({force:true});
+        await page.locator('#submit').click();
+        await page.locator('#result').waitFor({state:'visible',timeout:5000});
+        assert.equal(await page.evaluate(() => PGOffline.inspect().busy), true);
+    } finally { release(); }
+    await synced(page);
+});
+test('A local answer error and an interrupted operation reach the server after offline reload', async t => {
+    const f = await fixture(t), {context,page} = await f.device();
+    await page.locator('#categories .card').first().click();
+    await page.locator('#question-view').waitFor();
+    await context.setOffline(true);
+    await page.evaluate(() => {
+        const request = PGOffline.request;
+        PGOffline.request = (url, options) => url === '/api/answers' ? Promise.reject(new Error('Simulated local storage failure')) : request(url, options);
+    });
+    await page.locator('#options input').first().check({force:true});
+    await page.locator('#submit').click();
+    await page.locator('#error').waitFor({state:'visible'});
+    await page.evaluate(() => localStorage.setItem('pg16-operation:submit-answer', JSON.stringify({
+        operation:'submit-answer', screen:'question', started:Date.now() - 20000,
+    })));
+    await page.reload();
+    await page.waitForFunction(() => Object.keys(localStorage).filter(key => key.startsWith('pg16-report:')).length === 2);
+    const delivered = ['local', 'operation-interrupted'].map(kind => page.waitForResponse(response =>
+        response.url().endsWith('/api/client-errors') && response.status() === 204 && response.request().postDataJSON()?.kind === kind));
+    await context.setOffline(false);
+    const [local, interrupted] = (await Promise.all(delivered)).map(response => response.request().postDataJSON());
+    assert.equal(local.path, '/api/answers');
+    assert.equal(interrupted.operation, 'submit-answer');
+    await page.waitForFunction(() => !Object.keys(localStorage).some(key => key.startsWith('pg16-report:')));
+});
 test('Two devices exchange independent exercises, profile and results in both directions',async t=>{
     const f=await fixture(t),a=await f.device(),b=await f.device();
     await a.context.setOffline(true);await b.context.setOffline(true);
