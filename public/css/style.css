@@ -1112,6 +1112,28 @@ h2 { color: var(--fg); font-size: 1.3rem; letter-spacing: -.025em; }
     .app-header .main-nav a { flex: 1; }
     .personal-stats-table th, .personal-stats-table td { padding: 15px 12px; }
 }
+#connection-status {
+    display: none;
+}
+
+@media (max-width: 600px), (display-mode: standalone) and (pointer: coarse) {
+    #connection-status {
+        display: block;
+        margin: 0;
+    }
+
+    #connection-status:not(:empty) {
+        display: table;
+        margin: 0 0 12px;
+        padding: 4px 10px;
+        border-radius: 8px;
+        background: #ffd78a;
+        color: #452900;
+        font-size: .85rem;
+        font-weight: 600;
+    }
+}
+
 @media (max-width: 600px) {
     body { padding: 16px 16px 40px; }
     body:has(#main-nav:not([hidden])) { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }

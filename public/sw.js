@@ -1,5 +1,5 @@
 /* Bump the shell version whenever a cached asset changes. */
-const SHELL='pg16-shell-v8';
+const SHELL='pg16-shell-v9';
 const ASSETS=['/','/index.html','/css/style.css','/js/accent.js','/js/ai.js','/js/app.js',
     '/js/offline-core.js','/js/offline.js','/favicon.svg','/manifest.webmanifest',
     '/icons/pwa-192.png','/icons/pwa-512.png','/icons/pwa-maskable-512.png'];

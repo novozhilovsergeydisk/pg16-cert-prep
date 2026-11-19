@@ -167,6 +167,53 @@
         }
     }
 
+    function watchConnection() {
+        const status = $('connection-status');
+        if (!status) return;
+        const mobile = matchMedia('(max-width: 600px), (display-mode: standalone) and (pointer: coarse)');
+        let probe;
+
+        function showOffline(offline) {
+            const message = offline ? 'Нет интернета' : '';
+            if (status.textContent !== message) status.textContent = message;
+        }
+
+        async function check() {
+            const offline = navigator.onLine === false;
+            if (!mobile.matches || document.hidden || offline) {
+                probe?.abort();
+                probe = undefined;
+                if (!mobile.matches || offline) showOffline(mobile.matches && offline);
+                return;
+            }
+            if (probe) return;
+
+            const controller = new AbortController();
+            probe = controller;
+            const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+            try {
+                // HEAD обходит кэш service worker; любой HTTP-ответ подтверждает связь.
+                await fetch('/api/me', {
+                    method: 'HEAD', cache: 'no-store', credentials: 'omit', signal: controller.signal,
+                });
+                if (probe === controller) showOffline(false);
+            } catch {
+                if (probe === controller) showOffline(true);
+            } finally {
+                clearTimeout(timeout);
+                if (probe === controller) probe = undefined;
+            }
+        }
+
+        window.addEventListener('offline', check);
+        window.addEventListener('online', check);
+        window.addEventListener('pageshow', check);
+        document.addEventListener('visibilitychange', check);
+        mobile.addEventListener('change', check);
+        setInterval(check, 30000);
+        check();
+    }
+
     // Отчёт о сбое в журнал сервера: только вид сбоя, путь, код, длительность, экран и место ошибки.
     // Свободного текста нет. Не больше 10 отчётов за загрузку страницы; сбой отправки отчёта не порождает новый.
     let reportsLeft = 10;
@@ -2186,5 +2233,6 @@
         if (activeView === 'stats') openStats();
         if (activeView === 'history') openHistory();
     });
+    watchConnection();
     init();
 })();

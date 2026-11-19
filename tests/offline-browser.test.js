@@ -45,8 +45,17 @@ async function answer(page,batch,kind='training'){
 test('PWA cold launch offline, all learning modes, materials and recovery without duplicate results',async t=>{
     const f=await fixture(t),{context,page}=await f.device();
     const manifest=await page.evaluate(async()=>await (await fetch('/manifest.webmanifest')).json());assert.equal(manifest.display,'standalone');
-    await context.setOffline(true);await page.close();const offline=await context.newPage();offline.setDefaultTimeout(15000);
+    const statusSelector = '#connection-status';
+    const connectionStatus = page.locator(statusSelector);
+    assert.equal(await connectionStatus.isVisible(), false);
+    await context.setOffline(true);
+    await connectionStatus.waitFor({state:'visible'});
+    assert.equal(await connectionStatus.textContent(), 'Нет интернета');
+    await page.close();const offline=await context.newPage();offline.setDefaultTimeout(15000);
     await offline.goto(base);await offline.locator('#categories .card').first().waitFor();
+    const offlineStatus = offline.locator(statusSelector);
+    await offlineStatus.waitFor({state:'visible'});
+    assert.equal(await offlineStatus.evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(255, 215, 138)');
     assert.equal(await offline.evaluate(()=>PGOffline.inspect().ready),true);
     await offline.locator('#categories .card').first().click();
     await offline.locator('#options input').first().check({force:true});await offline.locator('#submit').click();
@@ -59,10 +68,24 @@ test('PWA cold launch offline, all learning modes, materials and recovery withou
         return {result,material:PGOffline.document('/api/practice/01'),stats:(await PGOffline.request('/api/stats')).value,history:(await PGOffline.request('/api/exam/history')).value};
     });assert.equal(summary.result.total,2);assert.ok(summary.material.length>100);assert.equal(summary.history.length,1);
     assert.ok(summary.stats.topics.some(c=>c.answered>0));
-    await context.setOffline(false);await synced(offline);
+    await context.setOffline(false);
+    await offlineStatus.waitFor({state:'hidden'});
+    await synced(offline);
     const first=(await query('SELECT count(*)::int n FROM answer_log WHERE user_id=$1',[f.uid])).rows[0].n;
     assert.equal(first,3);assert.equal((await query('SELECT count(*)::int n FROM option_check_answers WHERE user_id=$1',[f.uid])).rows[0].n,1);
     await synced(offline);assert.equal((await query('SELECT count(*)::int n FROM answer_log WHERE user_id=$1',[f.uid])).rows[0].n,first);
+});
+test('Mobile connection indicator detects request failure while the browser reports online', async t => {
+    const f = await fixture(t), {page} = await f.device();
+    const status = page.locator('#connection-status');
+    await page.route('**/api/me', route => route.request().method() === 'HEAD' ? route.abort('internetdisconnected') : route.continue());
+    await page.evaluate(() => window.dispatchEvent(new Event('pageshow')));
+    await status.waitFor({state:'visible'});
+    assert.equal(await page.evaluate(() => navigator.onLine), true);
+    assert.equal(await status.textContent(), 'Нет интернета');
+    await page.unroute('**/api/me');
+    await page.evaluate(() => window.dispatchEvent(new Event('pageshow')));
+    await status.waitFor({state:'hidden'});
 });
 test('Two devices exchange independent exercises, profile and results in both directions',async t=>{
     const f=await fixture(t),a=await f.device(),b=await f.device();
